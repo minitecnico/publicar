@@ -1,0 +1,15 @@
+{
+  "name": "Publicar",
+  "short_name": "Publicar",
+  "description": "O seu outdoor itinerante",
+  "start_url": "/tela",
+  "scope": "/",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#1E1E1E",
+  "theme_color": "#1E1E1E",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

@@ -1,0 +1,28 @@
+# Configuração do projeto Cloudflare Pages "publicar".
+#
+# Em produção este arquivo é REESCRITO pelo GitHub Actions (scripts/provision.mjs),
+# que cria o banco D1 e o namespace KV se ainda não existirem e preenche os IDs reais.
+# Os IDs abaixo só servem para desenvolvimento local (wrangler pages dev).
+
+name = "publicar"
+pages_build_output_dir = "dist"
+compatibility_date = "2026-10-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "publicar-db"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+# Mídia (vídeos e imagens). KV funciona no plano grátis SEM cartão de crédito
+# (até 25 MB por arquivo, 1 GB no total, 1.000 gravações/dia).
+[[kv_namespaces]]
+binding = "MEDIA_KV"
+id = "00000000000000000000000000000000"
+
+# Opcional: R2 (10 GB grátis, arquivos maiores). Exige cartão cadastrado na Cloudflare.
+# Para ativar, defina a variável USE_R2=true no GitHub (Settings > Variables).
+# [[r2_buckets]]
+# binding = "MEDIA"
+# bucket_name = "publicar-media"
