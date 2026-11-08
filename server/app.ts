@@ -2,7 +2,8 @@ import { Hono } from 'hono'
 import { conferirSenha, emitirToken, exigirAdmin, exigirLogin, hashSenha } from './auth'
 import { cteAudiencia, investimentoNoPeriodo, metricas, padroesAudiencia, SQL_ALCANCE, SQL_IMPACTOS } from './audiencia'
 import { cron, enviarAlerta } from './alertas'
-import { pacotesSugeridos } from './pacotes'
+import { padroesAudiencia } from './audiencia'
+import { anexarMetricasPacotes, audienciaTela, pacotesSugeridos } from './pacotes'
 import { crud } from './crud'
 import { novoToken, relatorioCampanha } from './relatorio'
 import { carregarGrade, configCiclo, ocupacao, rodaNaTela, segundosNoCiclo, verificarCampanha } from './grade'
@@ -93,6 +94,56 @@ app.get('/publico/campanha/:token', async (c) => {
   })
 })
 
+// Mídia kit público da empresa (link sem login): números do dia, bairros, pacotes e especificações.
+app.get('/publico/midiakit/:token', async (c) => {
+  const token = c.req.param('token')
+  if (!/^[A-Za-z0-9_-]{20,64}$/.test(token)) return c.json({ erro: 'Link inválido' }, 404)
+  const db = c.env.DB
+  const t = await db.prepare("SELECT id, nome, config FROM tenants WHERE json_extract(config, '$.token_midiakit') = ?").bind(token).first<{ id: string; nome: string; config: string }>()
+  if (!t) return c.json({ erro: 'Mídia kit indisponível. Peça um novo link.' }, 404)
+  let cfg: Record<string, any> = {}
+  try { cfg = JSON.parse(t.config || '{}') } catch { /* vazio */ }
+  const [telasRes, pacotesRes, padroes] = await Promise.all([
+    db.prepare("SELECT * FROM telas WHERE tenant_id = ? AND status = 'ativa'").bind(t.id).all<Record<string, unknown>>(),
+    db.prepare("SELECT * FROM pacotes WHERE tenant_id = ? AND status = 'ativo' ORDER BY preco_base").bind(t.id).all<Record<string, unknown>>(),
+    padroesAudiencia(db, t.id),
+  ])
+  const telas = telasRes.results
+  const bairros = new Map<string, { bairro: string; carros: number; estabelecimentos: number; pessoas_dia: number }>()
+  let pessoasDia = 0
+  for (const tela of telas) {
+    const a = audienciaTela(tela, padroes)
+    pessoasDia += a.pessoas
+    const k = String(tela.bairro || '').trim() || 'Outros'
+    const b = bairros.get(k) || { bairro: k, carros: 0, estabelecimentos: 0, pessoas_dia: 0 }
+    if (tela.tipo === 'carro') b.carros++
+    else b.estabelecimentos++
+    b.pessoas_dia += a.pessoas
+    bairros.set(k, b)
+  }
+  const pacotes = pacotesRes.results
+  for (const p of pacotes) p.bairros = JSON.parse(String(p.bairros || '[]'))
+  await anexarMetricasPacotes(db, t.id, pacotes)
+  c.header('Cache-Control', 'no-store')
+  return c.json({
+    empresa: t.nome,
+    cidade: cfg.cidade || null,
+    whatsapp: cfg.whatsapp || null,
+    telas: { total: telas.length, carros: telas.filter((x) => x.tipo === 'carro').length, estabelecimentos: telas.filter((x) => x.tipo !== 'carro').length },
+    pessoas_dia: Math.round(pessoasDia),
+    pessoas_mes: Math.round(pessoasDia * 30),
+    bairros: [...bairros.values()].map((b) => ({ ...b, pessoas_dia: Math.round(b.pessoas_dia) })).sort((a, b) => b.pessoas_dia - a.pessoas_dia),
+    pacotes: pacotes.map((p) => {
+      const m = (p.metricas || {}) as Record<string, unknown>
+      return {
+        nome: p.nome, descricao: p.descricao, duracao: p.duracao, prioridade: p.prioridade, horarios: JSON.parse(String(p.horarios || '[]')), dias_semana: JSON.parse(String(p.dias_semana || '[]')),
+        telas: m.telas, bairros: m.bairros, pessoas_dia: m.pessoas_dia, impactos_mes: m.impactos_mes, preco: m.preco_sugerido, cpm: m.cpm, ocupacao: m.ocupacao,
+      }
+    }),
+    ciclo: { segundos: Number(cfg.ciclo_segundos) || 120, conteudo_pct: Number(cfg.conteudo_pct) || 0 },
+  })
+})
+
 app.route('/player', player)
 app.route('/r', redirecionarQr)
 app.route('/publico/loja', loja)
@@ -114,8 +165,13 @@ app.get('/config', async (c) => {
 
 app.put('/config', exigirAdmin, async (c) => {
   const { nome, modulos, config } = await c.req.json<{ nome: string; modulos: string[]; config: Record<string, unknown> }>()
+  // chaves controladas só pelo servidor (links públicos) não são sobrescritas pelo formulário
+  const atual = await c.env.DB.prepare('SELECT config FROM tenants WHERE id = ?').bind(c.get('sessao').tid).first<{ config: string }>()
+  let antes: Record<string, unknown> = {}
+  try { antes = JSON.parse(atual?.config || '{}') } catch { /* vazio */ }
+  const novo = { ...(config || {}), token_midiakit: antes.token_midiakit }
   await c.env.DB.prepare('UPDATE tenants SET nome = ?, modulos = ?, config = ? WHERE id = ?')
-    .bind(nome, JSON.stringify(modulos || []), JSON.stringify(config || {}), c.get('sessao').tid)
+    .bind(nome, JSON.stringify(modulos || []), JSON.stringify(novo), c.get('sessao').tid)
     .run()
   return c.json({ ok: true })
 })
@@ -227,6 +283,20 @@ app.post('/campanhas/:id/link', async (c) => {
   const token = novoToken()
   await c.env.DB.prepare('UPDATE campanhas SET token_publico = ? WHERE id = ? AND tenant_id = ?').bind(token, id, tid).run()
   return c.json({ token })
+})
+
+// Link público do mídia kit (gera uma vez; "novo" = troca o link e invalida o anterior).
+app.post('/midiakit/link', exigirAdmin, async (c) => {
+  const tid = c.get('sessao').tid
+  const { novo } = await c.req.json<{ novo?: boolean }>().catch(() => ({ novo: false }))
+  const t = await c.env.DB.prepare('SELECT config FROM tenants WHERE id = ?').bind(tid).first<{ config: string }>()
+  let cfg: Record<string, unknown> = {}
+  try { cfg = JSON.parse(t?.config || '{}') } catch { /* vazio */ }
+  if (!cfg.token_midiakit || novo) {
+    cfg.token_midiakit = novoToken()
+    await c.env.DB.prepare('UPDATE tenants SET config = ? WHERE id = ?').bind(JSON.stringify(cfg), tid).run()
+  }
+  return c.json({ token: cfg.token_midiakit })
 })
 
 // Cria os pacotes sugeridos (Cidade, Bairro, Horário nobre) se a empresa ainda não tem nenhum.

@@ -10,6 +10,7 @@
   >
     <template #ferramentas>
       <button v-if="crud && !crud.linhas.length" class="btn" @click="criarSugeridos">Criar pacotes sugeridos</button>
+      <button class="btn" title="Página pública com números, bairros e pacotes, para mandar ao cliente" @click="abrirMidiaKit">Mídia kit</button>
     </template>
     <template #celula-nome="{ linha }">
       <strong>{{ linha.nome }}</strong>
@@ -86,6 +87,18 @@ async function criarSugeridos() {
     const r = await api.post<{ criados: number }>('/pacotes/sugeridos')
     avisar(`${r.criados} pacotes criados: ajuste os preços à sua praça`)
     await crud.value?.carregar()
+  } catch (e) {
+    erro(e)
+  }
+}
+
+/** Abre o mídia kit público (o link fica fixo: dá para mandar ao cliente e ele sempre vê os números do dia). */
+async function abrirMidiaKit() {
+  try {
+    const { token } = await api.post<{ token: string }>('/midiakit/link')
+    const url = `${location.origin}/midiakit/${token}`
+    try { await navigator.clipboard.writeText(url); avisar('Link do mídia kit copiado') } catch { /* sem permissão de cópia */ }
+    window.open(url, '_blank', 'noopener')
   } catch (e) {
     erro(e)
   }
