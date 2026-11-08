@@ -11,7 +11,8 @@ Roda 100% na Cloudflare, no plano gratuito. Deploy automático pelo GitHub Actio
 | Módulo | O que faz |
 | --- | --- |
 | Painel | Exibições do dia, telas online, receita recorrente, a receber, pendências |
-| Campanhas | Upload de imagem/vídeo, YouTube, chamada, QR code, período, dias da semana e faixas de horário, onde exibir, telas específicas, inserções por ciclo, aprovação, prévia de disponibilidade |
+| Campanhas | Contrato do anunciante: espaço comprado (duração × inserções), período, dias e faixas de horário, telas, QR code, aprovação, prévia de disponibilidade |
+| Peças (criativos) | Várias por campanha, envio múltiplo, rodízio sequencial ou por peso, chamada/QR/período próprios, aprovação por peça, checagem de formato e duração, prova de exibição por peça |
 | Inventário | Mapa tela × hora com o quanto do ciclo de anúncios já está vendido, espaços livres e horário de pico |
 | Clientes | Anunciantes e estabelecimentos, plano, mensalidade, vencimento, módulos ativos por cliente |
 | Telas | Cadastro de tablets e TVs com código de 6 letras, QR de instalação, status online, layout, cores, faixa de recados, entretenimento |
@@ -77,6 +78,20 @@ Cada tela vende um **ciclo de anúncios** (padrão 120 s, ajustável em *Configu
   anunciantes diferentes em horários diferentes. O player confere o horário localmente, então funciona offline.
 - A sobra do ciclo é preenchida com o entretenimento da tela; ciclo lotado = só anúncios.
 - A página **Inventário** mostra a ocupação por tela e hora de um dia, para o vendedor saber o que ainda pode vender.
+
+## Campanhas e peças
+
+Como nas redes de DOOH, a **campanha** é o que foi vendido (espaço de N segundos × inserções, período, telas, horários)
+e as **peças** são os criativos que giram dentro desse espaço. Trocar ou adicionar peça não muda o inventário.
+
+- **Rodízio:** sequencial (todas iguais, na ordem) ou por peso (ex.: oferta peso 7, marca peso 3 = 70%/30%).
+  O player usa round-robin ponderado suave, que distribui de forma uniforme mesmo com poucos ciclos.
+- **Aprovação por peça:** peça nova ou com arquivo trocado volta para "aguardando" e só vai ao ar aprovada.
+  Aprovar a campanha aprova junto as peças pendentes.
+- **Regras técnicas:** imagem fica o espaço inteiro; vídeo precisa caber no espaço (a duração é lida do arquivo
+  no envio). O painel avisa sobre peça em retrato, proporção fora de 16:9/16:10 e resolução baixa.
+- **Período e QR por peça:** ex.: peça "Promo de sexta" só às sextas da campanha; cada peça pode levar a um link.
+- **Relatório:** exibições por peça e share real de cada criativo.
 
 ## Instalar uma tela
 

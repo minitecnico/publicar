@@ -1,4 +1,4 @@
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { cicloDoTenant, lista, type Janela } from './grade'
 import { hoje, type AppEnv } from './types'
 
@@ -32,7 +32,7 @@ player.get('/:codigo', async (c) => {
 
   const dia = hoje()
   const { results } = await c.env.DB.prepare(
-    `SELECT id, nome, midia_tipo, midia_url, duracao, link_qr, texto, prioridade, telas_alvo, dias_semana, horarios
+    `SELECT id, nome, duracao, link_qr, prioridade, rotacao, telas_alvo, dias_semana, horarios
        FROM campanhas
       WHERE tenant_id = ? AND status = 'ativa'
         AND (inicio IS NULL OR inicio = '' OR inicio <= ?)
@@ -44,25 +44,57 @@ player.get('/:codigo', async (c) => {
     .all<Record<string, unknown>>()
 
   const origem = new URL(c.req.url).origin
-  const campanhas = results
-    .filter((cp) => {
-      let alvo: number[] = []
-      try { alvo = JSON.parse((cp.telas_alvo as string) || '[]') } catch { /* lista vazia = todas */ }
-      return !alvo.length || alvo.map(Number).includes(tela.id)
-    })
+  const daTela = results.filter((cp) => {
+    const alvo = lista<number>(cp.telas_alvo).map(Number)
+    return !alvo.length || alvo.includes(tela.id)
+  })
+
+  // peças aprovadas e dentro do próprio período
+  const pecasPor = new Map<number, Record<string, unknown>[]>()
+  if (daTela.length) {
+    const { results: pecas } = await c.env.DB.prepare(
+      `SELECT id, campanha_id, nome, midia_tipo, midia_url, duracao, texto, link_qr, peso
+         FROM pecas
+        WHERE tenant_id = ? AND status = 'aprovada'
+          AND (inicio IS NULL OR inicio = '' OR inicio <= ?)
+          AND (fim IS NULL OR fim = '' OR fim >= ?)
+          AND campanha_id IN (SELECT id FROM campanhas WHERE tenant_id = ? AND status = 'ativa')
+        ORDER BY campanha_id, ordem, id`,
+    )
+      .bind(tela.tenant_id, dia, dia, tela.tenant_id)
+      .all<Record<string, unknown>>()
+    const ids = new Set(daTela.map((cp) => Number(cp.id)))
+    for (const p of pecas) {
+      const k = Number(p.campanha_id)
+      if (!ids.has(k)) continue
+      if (!pecasPor.has(k)) pecasPor.set(k, [])
+      pecasPor.get(k)!.push(p)
+    }
+  }
+
+  const campanhas = daTela
+    .filter((cp) => pecasPor.has(Number(cp.id)))
     .map((cp) => ({
       id: cp.id,
       nome: cp.nome,
-      midia_tipo: cp.midia_tipo,
-      midia_url: cp.midia_url,
-      duracao: cp.duracao,
-      texto: cp.texto,
+      duracao: cp.duracao, // duração do espaço comprado
       prioridade: cp.prioridade,
+      rotacao: cp.rotacao,
+      pecas: pecasPor.get(Number(cp.id))!.map((p) => ({
+        id: p.id,
+        tipo: p.midia_tipo,
+        url: p.midia_url,
+        duracao: p.duracao,
+        texto: p.texto,
+        peso: cp.rotacao === 'peso' ? p.peso : 1,
+        qr_url: p.link_qr || cp.link_qr ? `${origem}/api/r/${cp.id}/${tela.id}/${p.id}` : null,
+      })),
       // dia e horário são conferidos no próprio player (ele guarda a programação e funciona offline)
       dias_semana: lista<number>(cp.dias_semana).map(Number),
       horarios: lista<Janela>(cp.horarios),
-      qr_url: cp.link_qr ? `${origem}/api/r/${cp.id}/${tela.id}` : null,
     }))
+    // compatibilidade: player antigo (antes das peças) ainda lê a mídia direto da campanha até recarregar
+    .map((cp) => ({ ...cp, midia_tipo: cp.pecas[0].tipo, midia_url: cp.pecas[0].url, texto: cp.pecas[0].texto, qr_url: cp.pecas[0].qr_url }))
 
   let conteudo: unknown[] = []
   try { conteudo = JSON.parse(tela.conteudo || '[]') } catch { /* vazio */ }
@@ -95,22 +127,40 @@ player.post('/:codigo/ping', async (c) => {
   return c.json({ ok: r.meta.changes > 0 })
 })
 
-// Prova de exibição em lote: [{ campanha_id, dia, total }]
+// Prova de exibição em lote: [{ campanha_id, dia, total, pecas: { "<peca_id>": n } }]
+// Uma linha por campanha/tela/dia; a contagem por peça vai num JSON na mesma linha (economiza gravações no D1).
 player.post('/:codigo/exibicoes', async (c) => {
   const tela = await buscarTela(c.env.DB, c.req.param('codigo'))
   if (!tela) return c.json({ erro: 'Tela não encontrada' }, 404)
-  const { itens } = await c.req.json<{ itens: { campanha_id: number; dia: string; total: number }[] }>()
+  const { itens } = await c.req.json<{ itens: { campanha_id: number; dia: string; total: number; pecas?: Record<string, number> }[] }>()
   const validos = (itens || [])
     .filter((i) => Number.isInteger(i.campanha_id) && /^\d{4}-\d{2}-\d{2}$/.test(i.dia) && i.total > 0 && i.total < 100000)
     .slice(0, 200)
   if (!validos.length) return c.json({ ok: true, gravados: 0 })
+
+  // soma as peças ao que já está gravado
+  const dias = [...new Set(validos.map((i) => i.dia))]
+  const { results: atuais } = await c.env.DB.prepare(
+    `SELECT campanha_id, dia, pecas FROM exibicoes WHERE tela_id = ? AND dia IN (${dias.map(() => '?').join(',')})`,
+  )
+    .bind(tela.id, ...dias)
+    .all<{ campanha_id: number; dia: string; pecas: string }>()
+  const gravadas = new Map(atuais.map((a) => [`${a.campanha_id}|${a.dia}`, a.pecas]))
+
   const stmt = c.env.DB.prepare(
-    `INSERT INTO exibicoes (tenant_id, campanha_id, tela_id, dia, total)
-     SELECT ?, id, ?, ?, ? FROM campanhas WHERE id = ? AND tenant_id = ?
-     ON CONFLICT (campanha_id, tela_id, dia) DO UPDATE SET total = total + excluded.total`,
+    `INSERT INTO exibicoes (tenant_id, campanha_id, tela_id, dia, total, pecas)
+     SELECT ?, id, ?, ?, ?, ? FROM campanhas WHERE id = ? AND tenant_id = ?
+     ON CONFLICT (campanha_id, tela_id, dia) DO UPDATE SET total = total + excluded.total, pecas = excluded.pecas`,
   )
   await c.env.DB.batch(
-    validos.map((i) => stmt.bind(tela.tenant_id, tela.id, i.dia, Math.round(i.total), i.campanha_id, tela.tenant_id)),
+    validos.map((i) => {
+      let pecas: Record<string, number> = {}
+      try { pecas = JSON.parse(gravadas.get(`${i.campanha_id}|${i.dia}`) || '{}') } catch { /* recomeça */ }
+      for (const [pid, n] of Object.entries(i.pecas || {})) {
+        if (/^\d+$/.test(pid) && Number(n) > 0) pecas[pid] = (Number(pecas[pid]) || 0) + Math.round(Number(n))
+      }
+      return stmt.bind(tela.tenant_id, tela.id, i.dia, Math.round(i.total), JSON.stringify(pecas), i.campanha_id, tela.tenant_id)
+    }),
   )
   return c.json({ ok: true, gravados: validos.length })
 })
@@ -118,11 +168,17 @@ player.post('/:codigo/exibicoes', async (c) => {
 /** Redirecionamento do QR code: conta a leitura e leva ao link do anunciante. */
 export const redirecionarQr = new Hono<AppEnv>()
 
-redirecionarQr.get('/:cid/:tid', async (c) => {
+async function qr(c: Context<AppEnv>) {
   const cid = Number(c.req.param('cid'))
   const tid = Number(c.req.param('tid'))
-  const cp = await c.env.DB.prepare('SELECT tenant_id, link_qr FROM campanhas WHERE id = ?')
-    .bind(cid)
+  const pid = Number(c.req.param('pid')) || 0
+  // link da peça; se vazio, o da campanha
+  const cp = await c.env.DB.prepare(
+    `SELECT cp.tenant_id, COALESCE(NULLIF(p.link_qr, ''), cp.link_qr) AS link_qr
+       FROM campanhas cp LEFT JOIN pecas p ON p.id = ? AND p.campanha_id = cp.id
+      WHERE cp.id = ?`,
+  )
+    .bind(pid, cid)
     .first<{ tenant_id: string; link_qr: string | null }>()
   if (!cp?.link_qr) return c.text('Link não encontrado', 404)
   await c.env.DB.prepare(
@@ -133,4 +189,6 @@ redirecionarQr.get('/:cid/:tid', async (c) => {
     .run()
   const destino = /^https?:\/\//i.test(cp.link_qr) ? cp.link_qr : `https://${cp.link_qr}`
   return c.redirect(destino, 302)
-})
+}
+redirecionarQr.get('/:cid/:tid', qr)
+redirecionarQr.get('/:cid/:tid/:pid', qr)

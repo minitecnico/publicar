@@ -12,6 +12,7 @@ export type TipoCampo =
   | 'conteudo'
   | 'checks'
   | 'horarios'
+  | 'pecas'
   | 'telefone'
   | 'email'
 
@@ -46,6 +47,8 @@ export const op = (...pares: [string, string][]): Opcao[] => pares.map(([valor, 
 export const STATUS_COR: Record<string, string> = {
   ativo: 'verde',
   ativa: 'verde',
+  aprovada: 'verde',
+  reprovada: 'vermelho',
   paga: 'verde',
   aguardando: 'laranja',
   aberta: 'laranja',

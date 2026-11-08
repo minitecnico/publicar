@@ -49,7 +49,7 @@
               </div>
 
               <div v-if="atual.texto && atual.tipo !== 'aviso'" class="chamada">{{ atual.texto }}</div>
-              <div v-if="atual.campanhaId && qrs[atual.campanhaId]" class="qr"><img :src="qrs[atual.campanhaId]" alt="QR code" /><span>Aponte a câmera</span></div>
+              <div v-if="atual.qr" class="qr"><img :src="atual.qr" alt="QR code" /><span>Aponte a câmera</span></div>
             </div>
             <div v-else key="vazio" class="ocioso">
               <img src="/logo.png" alt="Publicar" class="logo-ocioso" />
@@ -66,7 +66,7 @@
               <img v-if="lateralAtual.tipo === 'imagem'" :src="fonte(lateralAtual.url)" alt="" class="midia" />
               <video v-else-if="lateralAtual.tipo === 'video'" :src="fonte(lateralAtual.url)" class="midia" autoplay muted playsinline loop />
               <div v-if="lateralAtual.texto" class="chamada pequena">{{ lateralAtual.texto }}</div>
-              <div v-if="lateralAtual.campanhaId && qrs[lateralAtual.campanhaId]" class="qr pequeno-qr"><img :src="qrs[lateralAtual.campanhaId]" alt="QR code" /></div>
+              <div v-if="lateralAtual.qr" class="qr pequeno-qr"><img :src="lateralAtual.qr" alt="QR code" /></div>
             </div>
           </Transition>
         </aside>
@@ -106,7 +106,9 @@ import { useRoute, useRouter } from 'vue-router'
 
 /* ------------------------------------------------------------ tipos */
 interface Janela { ini: string; fim: string }
-interface Campanha { id: number; nome: string; midia_tipo: string; midia_url: string; duracao: number; texto: string | null; prioridade: number; qr_url: string | null; dias_semana?: number[]; horarios?: Janela[] }
+interface Peca { id: number; tipo: string; url: string; duracao: number | null; texto: string | null; peso: number; qr_url: string | null }
+/** duracao = espaço comprado; as peças giram dentro dele */
+interface Campanha { id: number; nome: string; duracao: number; prioridade: number; rotacao?: string; pecas?: Peca[]; dias_semana?: number[]; horarios?: Janela[] }
 interface Conteudo { tipo: string; url?: string; duracao?: number; titulo?: string; texto?: string }
 interface Dados {
   tela: { id: number; nome: string; codigo: string; tipo: string; layout: string; cor_primaria: string; cor_fundo: string; logo_url: string | null; ticker: string | null; conteudo: Conteudo[] }
@@ -114,9 +116,9 @@ interface Dados {
   /** ciclo de anúncios em segundos: a sobra é preenchida com entretenimento */
   ciclo?: number
 }
-interface Item { chave: string; tipo: string; url?: string; duracao: number; texto?: string | null; titulo?: string; qr?: string; campanhaId?: number }
+interface Item { chave: string; tipo: string; url?: string; duracao: number; texto?: string | null; titulo?: string; qr?: string; campanhaId?: number; pecaId?: number }
 
-const VERSAO = '0.2.0'
+const VERSAO = '0.3.0'
 const route = useRoute()
 const router = useRouter()
 
@@ -143,7 +145,7 @@ const chaveCache = () => `publicar.player.${codigo.value}`
 const dados = ref<Dados | null>(null)
 const falha = ref('')
 const semRede = ref(false)
-const qrs = reactive<Record<number, string>>({})
+const qrs = reactive<Record<string, string>>({}) // por endereço do QR
 
 try {
   const salvo = localStorage.getItem(chaveCache())
@@ -180,7 +182,7 @@ async function prepararMidias() {
   preparando = true
   try {
     const urls = new Set<string>()
-    for (const c of dados.value.campanhas) if (c.midia_url && c.midia_tipo !== 'youtube') urls.add(c.midia_url)
+    for (const c of dados.value.campanhas) for (const p of c.pecas || []) if (p.url && p.tipo !== 'youtube') urls.add(p.url)
     for (const c of dados.value.tela.conteudo || []) if (c.url && (c.tipo === 'video' || c.tipo === 'imagem')) urls.add(c.url)
     if (dados.value.tela.logo_url) urls.add(dados.value.tela.logo_url)
     const cache = await caches.open(CACHE_MIDIA)
@@ -212,7 +214,9 @@ watch(
   () => dados.value?.campanhas,
   async (camps) => {
     for (const c of camps || []) {
-      if (c.qr_url && !qrs[c.id]) qrs[c.id] = await QRCode.toDataURL(c.qr_url, { margin: 1, width: 240, color: { dark: '#1E1E1E' } })
+      for (const p of c.pecas || []) {
+        if (p.qr_url && !qrs[p.qr_url]) qrs[p.qr_url] = await QRCode.toDataURL(p.qr_url, { margin: 1, width: 240, color: { dark: '#1E1E1E' } })
+      }
     }
     prepararMidias()
   },
@@ -249,9 +253,10 @@ function noAr(c: Campanha) {
 /* ------------------------------------------------------------ programação */
 const anuncios = computed<Item[]>(() => {
   const lista: Item[] = []
-  for (const c of (dados.value?.campanhas || []).filter(noAr)) {
+  for (const c of (dados.value?.campanhas || []).filter((c) => noAr(c) && c.pecas?.length)) {
+    // cada inserção é um espaço da campanha; a peça é escolhida na hora de tocar (rodízio)
     for (let r = 0; r < Math.max(1, Math.min(c.prioridade || 1, 5)); r++) {
-      lista.push({ chave: `c${c.id}-${r}`, tipo: c.midia_tipo, url: c.midia_url, duracao: c.duracao || 15, texto: c.texto, qr: qrs[c.id], campanhaId: c.id })
+      lista.push({ chave: `c${c.id}-${r}`, tipo: 'espaco', duracao: Math.max(5, c.duracao || 15), campanhaId: c.id })
     }
   }
   // espalha as repetições para não tocar a mesma peça em sequência
@@ -263,6 +268,42 @@ const entretenimento = computed<Item[]>(() =>
     .map((c, i) => ({ chave: `e${i}`, tipo: c.tipo, url: c.url, duracao: c.duracao || 30, texto: null, titulo: c.titulo, ...(c.tipo === 'aviso' ? { texto: c.texto } : {}) })),
 )
 const layoutLateral = computed(() => dados.value?.tela.layout === 'lateral' && entretenimento.value.length > 0 && anuncios.value.length > 0)
+
+/* Rodízio das peças: round-robin ponderado suave (distribui de forma uniforme e previsível;
+   pesos iguais = sequencial). Estado por campanha, mantido entre ciclos. */
+const rodizio = new Map<number, Map<number, number>>()
+function proximaPeca(c: Campanha): Peca {
+  const pecas = c.pecas!
+  const est = rodizio.get(c.id) || new Map<number, number>()
+  rodizio.set(c.id, est)
+  let total = 0
+  let melhor = pecas[0]
+  for (const p of pecas) {
+    const w = Math.max(1, p.peso || 1)
+    total += w
+    est.set(p.id, (est.get(p.id) || 0) + w)
+    if (est.get(p.id)! > est.get(melhor.id)!) melhor = p
+  }
+  est.set(melhor.id, est.get(melhor.id)! - total)
+  return melhor
+}
+/** Transforma o espaço da campanha na peça que vai tocar agora. */
+function montarAnuncio(espaco: Item, chave: string): Item | null {
+  const c = dados.value?.campanhas.find((x) => x.id === espaco.campanhaId)
+  if (!c?.pecas?.length) return null
+  const p = proximaPeca(c)
+  return {
+    chave,
+    tipo: p.tipo,
+    url: p.url,
+    // imagem fica o espaço inteiro; vídeo/YouTube a própria duração (validada para caber no espaço)
+    duracao: p.tipo === 'imagem' ? espaco.duracao : Math.max(5, p.duracao || espaco.duracao),
+    texto: p.texto,
+    qr: p.qr_url ? qrs[p.qr_url] : undefined,
+    campanhaId: c.id,
+    pecaId: p.id,
+  }
+}
 
 const atual = ref<Item | null>(null)
 const lateralAtual = ref<Item | null>(null)
@@ -291,7 +332,7 @@ function proximoItem(): Item | null {
   const ciclo = dados.value?.ciclo || 120
   const tempoAds = ads.reduce((s, a) => s + Math.max(5, a.duracao), 0)
   saldoEnt = Math.max(0, saldoEnt) + Math.max(0, ciclo - tempoAds) / ads.length
-  return { ...ads[iAnuncio++ % ads.length], chave: `a${rodada}` }
+  return montarAnuncio(ads[iAnuncio++ % ads.length], `a${rodada}`)
 }
 
 function avancar() {
@@ -303,9 +344,10 @@ function avancar() {
     timer = window.setTimeout(avancar, 10000)
     return
   }
-  if (item.campanhaId) registrarExibicao(item.campanhaId)
+  if (item.campanhaId) registrarExibicao(item.campanhaId, item.pecaId)
   // vídeo avança no "ended"; a trava de segurança evita ficar parado se o vídeo travar
-  const segundos = item.tipo === 'video' ? 300 : Math.max(5, item.duracao)
+  // (anúncio: duração da peça + folga; entretenimento: até 5 min)
+  const segundos = item.tipo === 'video' ? (item.campanhaId ? item.duracao + 3 : 300) : Math.max(5, item.duracao)
   timer = window.setTimeout(avancar, segundos * 1000)
 }
 const avancarDepois = (s: number) => { clearTimeout(timer); timer = window.setTimeout(avancar, s * 1000) }
@@ -314,9 +356,10 @@ function avancarLateral() {
   clearTimeout(timerLateral)
   const ads = anuncios.value
   if (!layoutLateral.value || !ads.length) { lateralAtual.value = null; return }
-  const item = { ...ads[iLateral++ % ads.length], chave: `l${iLateral}` }
+  const item = montarAnuncio(ads[iLateral++ % ads.length], `l${iLateral}`)
   lateralAtual.value = item
-  if (item.campanhaId) registrarExibicao(item.campanhaId)
+  if (!item) { timerLateral = window.setTimeout(avancarLateral, 5000); return }
+  if (item.campanhaId) registrarExibicao(item.campanhaId, item.pecaId)
   timerLateral = window.setTimeout(avancarLateral, Math.max(8, item.duracao) * 1000)
 }
 
@@ -330,29 +373,47 @@ watch(
 const chaveExib = () => `publicar.exib.${codigo.value}`
 const hojeBR = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' })
 
-function registrarExibicao(campanhaId: number) {
-  const fila = JSON.parse(localStorage.getItem(chaveExib()) || '{}')
+// fila local: "campanha|dia" → { total, pecas: { peca_id: n } } (versões antigas guardavam só o número)
+interface Contagem { total: number; pecas: Record<string, number> }
+function lerFila(): Record<string, Contagem> {
+  let bruto: Record<string, number | Contagem> = {}
+  try { bruto = JSON.parse(localStorage.getItem(chaveExib()) || '{}') } catch { /* fila corrompida: recomeça */ }
+  const out: Record<string, Contagem> = {}
+  for (const [k, v] of Object.entries(bruto)) out[k] = typeof v === 'number' ? { total: v, pecas: {} } : { total: Number(v.total) || 0, pecas: v.pecas || {} }
+  return out
+}
+
+function registrarExibicao(campanhaId: number, pecaId?: number) {
+  const fila = lerFila()
   const k = `${campanhaId}|${hojeBR()}`
-  fila[k] = (fila[k] || 0) + 1
+  const c = (fila[k] ||= { total: 0, pecas: {} })
+  c.total++
+  if (pecaId) c.pecas[pecaId] = (c.pecas[pecaId] || 0) + 1
   localStorage.setItem(chaveExib(), JSON.stringify(fila))
 }
 
 async function enviarExibicoes() {
-  const fila: Record<string, number> = JSON.parse(localStorage.getItem(chaveExib()) || '{}')
-  const itens = Object.entries(fila).map(([k, total]) => {
+  const fila = lerFila()
+  const itens = Object.entries(fila).map(([k, c]) => {
     const [cid, dia] = k.split('|')
-    return { campanha_id: Number(cid), dia, total }
+    return { campanha_id: Number(cid), dia, total: c.total, pecas: c.pecas }
   })
   if (!itens.length) return
   try {
     const res = await fetch(`/api/player/${codigo.value}/exibicoes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ itens }), keepalive: true })
     if (res.ok) {
       // desconta só o que foi enviado (pode ter entrado exibição nova durante o envio)
-      const agora: Record<string, number> = JSON.parse(localStorage.getItem(chaveExib()) || '{}')
+      const agora = lerFila()
       for (const i of itens) {
         const k = `${i.campanha_id}|${i.dia}`
-        agora[k] = (agora[k] || 0) - i.total
-        if (agora[k] <= 0) delete agora[k]
+        const c = agora[k]
+        if (!c) continue
+        c.total -= i.total
+        for (const [pid, n] of Object.entries(i.pecas)) {
+          c.pecas[pid] = (c.pecas[pid] || 0) - n
+          if (c.pecas[pid] <= 0) delete c.pecas[pid]
+        }
+        if (c.total <= 0) delete agora[k]
       }
       localStorage.setItem(chaveExib(), JSON.stringify(agora))
     }

@@ -43,6 +43,25 @@
           {{ data(detalhe.de) }} a {{ data(detalhe.ate) }} · {{ det.cliente || 'sem anunciante' }} ·
           <strong>{{ numero(det.exibicoes) }}</strong> exibições · <strong>{{ numero(det.qr) }}</strong> QR lidos
         </p>
+        <div v-if="detalhe.por_peca?.length" class="por-peca">
+          <h3>Por peça</h3>
+          <table class="tabela">
+            <thead><tr><th>Peça</th><th>Status</th><th class="num">Exibições</th><th class="num">Share</th></tr></thead>
+            <tbody>
+              <tr v-for="p in detalhe.por_peca" :key="p.id">
+                <td>
+                  <div class="peca-nome">
+                    <span class="mini"><img v-if="p.midia_tipo === 'imagem'" :src="p.midia_url" alt="" /><video v-else-if="p.midia_tipo === 'video'" :src="p.midia_url" muted preload="metadata" /><span v-else>YT</span></span>
+                    {{ p.nome || 'Peça ' + p.id }}
+                  </div>
+                </td>
+                <td><span class="selo" :class="corStatus(p.status)">{{ p.status }}</span></td>
+                <td class="num">{{ numero(p.total) }}</td>
+                <td class="num">{{ totalPecas ? Math.round((p.total / totalPecas) * 100) + '%' : '—' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
         <div class="duas">
           <div>
             <h3>Por dia</h3>
@@ -65,7 +84,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { api } from '../api'
 import Icone from '../components/Icone.vue'
 import Modal from '../components/Modal.vue'
@@ -78,6 +97,7 @@ const ate = ref(hoje())
 const linhas = ref<any[]>([])
 const det = ref<any>(null)
 const detalhe = ref<any>(null)
+const totalPecas = computed(() => (detalhe.value?.por_peca || []).reduce((s: number, p: any) => s + Number(p.total || 0), 0))
 const soma = (k: string) => linhas.value.reduce((s, l) => s + Number(l[k] || 0), 0)
 
 async function carregar() {
@@ -108,5 +128,10 @@ input[type='date'] { width: auto; }
 tfoot td { border-top: 2px solid var(--borda); background: #fbfaf8; }
 .duas { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
 .duas h3 { margin-bottom: 6px; }
+.por-peca { margin-bottom: 18px; }
+.por-peca h3 { margin-bottom: 6px; }
+.peca-nome { display: flex; align-items: center; gap: 10px; }
+.mini { width: 48px; height: 30px; border-radius: 5px; background: #1e1e1e; overflow: hidden; display: grid; place-items: center; color: #fff; font-size: 0.65rem; flex-shrink: 0; }
+.mini img, .mini video { width: 100%; height: 100%; object-fit: cover; }
 @media (max-width: 700px) { .duas { grid-template-columns: 1fr; } }
 </style>

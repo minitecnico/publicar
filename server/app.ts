@@ -174,13 +174,26 @@ app.get('/relatorios/campanha/:id', async (c) => {
   const de = c.req.query('de') || hoje(new Date(Date.now() - 29 * 86400000))
   const ate = c.req.query('ate') || hoje()
   const db = c.env.DB
-  const [porDia, porTela] = await db.batch([
+  const [porDia, porTela, linhasPecas, pecas] = await db.batch([
     db.prepare('SELECT dia, SUM(total) AS total, SUM(qr) AS qr FROM exibicoes WHERE tenant_id = ? AND campanha_id = ? AND dia BETWEEN ? AND ? GROUP BY dia ORDER BY dia').bind(tid, id, de, ate),
     db.prepare(
       'SELECT t.nome, t.tipo, t.bairro, SUM(e.total) AS total, SUM(e.qr) AS qr FROM exibicoes e JOIN telas t ON t.id = e.tela_id WHERE e.tenant_id = ? AND e.campanha_id = ? AND e.dia BETWEEN ? AND ? GROUP BY t.id ORDER BY total DESC',
     ).bind(tid, id, de, ate),
+    db.prepare('SELECT pecas FROM exibicoes WHERE tenant_id = ? AND campanha_id = ? AND dia BETWEEN ? AND ?').bind(tid, id, de, ate),
+    db.prepare('SELECT id, nome, midia_tipo, midia_url, status FROM pecas WHERE tenant_id = ? AND campanha_id = ? ORDER BY ordem, id').bind(tid, id),
   ])
-  return c.json({ de, ate, por_dia: porDia.results, por_tela: porTela.results })
+  // soma a contagem por peça guardada em JSON em cada linha agregada
+  const somaPecas: Record<string, number> = {}
+  for (const l of linhasPecas.results as { pecas: string }[]) {
+    try {
+      for (const [pid, n] of Object.entries(JSON.parse(l.pecas || '{}') as Record<string, number>)) somaPecas[pid] = (somaPecas[pid] || 0) + Number(n)
+    } catch { /* linha antiga sem peças */ }
+  }
+  const porPeca = (pecas.results as { id: number; nome: string | null; midia_tipo: string; midia_url: string; status: string }[]).map((p) => ({
+    ...p,
+    total: somaPecas[String(p.id)] || 0,
+  }))
+  return c.json({ de, ate, por_dia: porDia.results, por_tela: porTela.results, por_peca: porPeca })
 })
 
 app.get('/financeiro', async (c) => {
