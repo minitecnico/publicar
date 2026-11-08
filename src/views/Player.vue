@@ -25,46 +25,50 @@
         <div class="palco">
           <Transition name="fade" mode="out-in">
             <div v-if="atual" :key="atual.chave" class="item" :style="{ '--dur': `${atual.duracao}s` }">
-              <!-- fundo: a própria peça desfocada preenche a tela (sem faixas pretas em peça fora do formato) -->
-              <div class="fundo-peca" :style="fundoPeca(atual)" />
+              <!-- ambiente: a própria peça, bem desfocada e escura, em volta da moldura -->
+              <div class="fundo-peca ambiente" :style="fundoPeca(atual)" />
 
-              <img v-if="atual.tipo === 'imagem'" :src="fonte(atual.url)" alt="" class="midia zoom" :class="{ inteira: atual.inteira }" />
-              <video
-                v-else-if="atual.tipo === 'video'"
-                :src="fonte(atual.url)"
-                class="midia"
-                :class="{ inteira: atual.inteira }"
-                autoplay
-                playsinline
-                :muted="mudo"
-                @ended="avancar"
-                @error="avancarDepois(2)"
-              />
-              <iframe
-                v-else-if="atual.tipo === 'youtube'"
-                :src="embedYoutube(atual.url)"
-                class="midia"
-                allow="autoplay; encrypted-media"
-                frameborder="0"
-              />
-              <div v-else-if="atual.tipo === 'aviso'" class="aviso">
-                <span class="aviso-titulo">{{ atual.titulo || 'Aviso' }}</span>
-                <p>{{ atual.texto }}</p>
-              </div>
-
-              <span v-if="atual.campanhaId" class="selo-pub">Publicidade</span>
-
-              <!-- faixa inferior: chamada + QR alinhados -->
-              <div v-if="(atual.texto && atual.tipo !== 'aviso') || atual.qr" class="faixa-info">
-                <div v-if="atual.texto && atual.tipo !== 'aviso'" class="chamada">{{ atual.texto }}</div>
-                <span v-else class="espaco" />
-                <div v-if="atual.qr" class="qr">
-                  <img :src="atual.qr" alt="QR code" />
-                  <span>Aponte a<br />câmera</span>
+              <!-- moldura: a peça fica num quadro com margem, cantos arredondados e borda na cor da marca -->
+              <div class="moldura">
+                <div class="fundo-peca" :style="fundoPeca(atual)" />
+                <img v-if="atual.tipo === 'imagem'" :src="fonte(atual.url)" alt="" class="midia zoom" :class="{ inteira: atual.inteira }" />
+                <video
+                  v-else-if="atual.tipo === 'video'"
+                  :src="fonte(atual.url)"
+                  class="midia"
+                  :class="{ inteira: atual.inteira }"
+                  autoplay
+                  playsinline
+                  :muted="mudo"
+                  @ended="avancar"
+                  @error="avancarDepois(2)"
+                />
+                <iframe
+                  v-else-if="atual.tipo === 'youtube'"
+                  :src="embedYoutube(atual.url)"
+                  class="midia"
+                  allow="autoplay; encrypted-media"
+                  frameborder="0"
+                />
+                <div v-else-if="atual.tipo === 'aviso'" class="aviso">
+                  <span class="aviso-titulo">{{ atual.titulo || 'Aviso' }}</span>
+                  <p>{{ atual.texto }}</p>
                 </div>
-              </div>
 
-              <div v-if="mostraProgresso(atual)" class="progresso"><i /></div>
+                <span v-if="atual.campanhaId" class="selo-pub">Publicidade</span>
+
+                <!-- faixa inferior: chamada + QR alinhados -->
+                <div v-if="(atual.texto && atual.tipo !== 'aviso') || atual.qr" class="faixa-info">
+                  <div v-if="atual.texto && atual.tipo !== 'aviso'" class="chamada">{{ atual.texto }}</div>
+                  <span v-else class="espaco" />
+                  <div v-if="atual.qr" class="qr">
+                    <img :src="atual.qr" alt="QR code" />
+                    <span>Aponte a<br />câmera</span>
+                  </div>
+                </div>
+
+                <div v-if="mostraProgresso(atual)" class="progresso"><i /></div>
+              </div>
             </div>
             <div v-else key="vazio" class="ocioso">
               <img src="/logo.png" alt="Publicar" class="logo-ocioso" />
@@ -563,7 +567,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .player { position: fixed; inset: 0; background: var(--fundo-tela); color: #fff; display: flex; flex-direction: column; overflow: hidden; user-select: none; cursor: none; font-family: 'Inter', 'Segoe UI', system-ui, sans-serif; }
 .area { flex: 1; display: flex; min-height: 0; gap: 0; }
-.palco { flex: 1; position: relative; min-width: 0; overflow: hidden; background: #000; }
+.palco { flex: 1; position: relative; min-width: 0; overflow: hidden; background: var(--fundo-tela); }
 .area.lateral { gap: clamp(6px, 0.8vw, 12px); padding: clamp(6px, 0.8vw, 12px); background: var(--fundo-tela); }
 .area.lateral .palco { flex: 3; border-radius: 14px; }
 .coluna { flex: 1.15; position: relative; overflow: hidden; background: #000; border-radius: 14px; box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--cor) 70%, transparent); }
@@ -571,6 +575,28 @@ onBeforeUnmount(() => {
 /* ---------- peça */
 .item { position: absolute; inset: 0; display: grid; place-items: center; overflow: hidden; }
 .fundo-peca { position: absolute; inset: -40px; background-size: cover; background-position: center; filter: blur(38px) saturate(1.35) brightness(0.55); transform: scale(1.1); }
+.fundo-peca.ambiente { filter: blur(60px) saturate(1.2) brightness(0.32); }
+
+/* ---------- moldura da peça */
+.moldura {
+  position: absolute;
+  inset: clamp(12px, 2.6vh, 32px) clamp(14px, 2vw, 36px);
+  z-index: 1;
+  overflow: hidden;
+  border-radius: clamp(14px, 1.5vw, 24px);
+  background: #000;
+  border: clamp(2px, 0.28vw, 5px) solid var(--cor);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.06),
+    0 26px 70px rgba(0, 0, 0, 0.65),
+    0 0 48px color-mix(in srgb, var(--cor) 28%, transparent);
+  animation: entrar 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  display: grid;
+  place-items: center;
+}
+@keyframes entrar { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: none; } }
+/* no layout lateral o palco já é um cartão: a moldura ocupa tudo */
+.area.lateral .moldura { inset: 0; border-radius: inherit; }
 .midia { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center; border: 0; z-index: 1; }
 /* "Ajustar inteira": peça toda visível, sobra preenchida pelo fundo desfocado */
 .midia.inteira { object-fit: contain; filter: drop-shadow(0 12px 40px rgba(0, 0, 0, 0.45)); }
