@@ -4,6 +4,7 @@ import { cteAudiencia, investimentoNoPeriodo, metricas, padroesAudiencia, SQL_AL
 import { cron, enviarAlerta } from './alertas'
 import { anexarMetricasPacotes, audienciaTela, pacotesSugeridos } from './pacotes'
 import { crud } from './crud'
+import { portal } from './portal'
 import { novoToken, relatorioCampanha } from './relatorio'
 import { carregarGrade, configCiclo, ocupacao, rodaNaTela, segundosNoCiclo, verificarCampanha } from './grade'
 import { enviarMidia, servirMidia } from './media'
@@ -147,6 +148,7 @@ app.route('/player', player)
 app.route('/r', redirecionarQr)
 app.route('/publico/loja', loja)
 app.route('/cron', cron)
+app.route('/publico/portal', portal)
 app.get('/media/*', servirMidia)
 
 /* -------------------------------------------------------------- protegidas */
@@ -296,6 +298,22 @@ app.post('/midiakit/link', exigirAdmin, async (c) => {
     await c.env.DB.prepare('UPDATE tenants SET config = ? WHERE id = ?').bind(JSON.stringify(cfg), tid).run()
   }
   return c.json({ token: cfg.token_midiakit })
+})
+
+// Link do portal do anunciante (gera uma vez; DELETE revoga).
+app.post('/clientes/:id/portal', async (c) => {
+  const tid = c.get('sessao').tid
+  const id = Number(c.req.param('id'))
+  const atual = await c.env.DB.prepare('SELECT token_portal FROM clientes WHERE id = ? AND tenant_id = ?').bind(id, tid).first<{ token_portal: string | null }>()
+  if (!atual) return c.json({ erro: 'Cliente não encontrado' }, 404)
+  if (atual.token_portal) return c.json({ token: atual.token_portal })
+  const token = novoToken()
+  await c.env.DB.prepare('UPDATE clientes SET token_portal = ? WHERE id = ? AND tenant_id = ?').bind(token, id, tid).run()
+  return c.json({ token })
+})
+app.delete('/clientes/:id/portal', async (c) => {
+  await c.env.DB.prepare('UPDATE clientes SET token_portal = NULL WHERE id = ? AND tenant_id = ?').bind(Number(c.req.param('id')), c.get('sessao').tid).run()
+  return c.json({ ok: true })
 })
 
 // Cria os pacotes sugeridos (Cidade, Bairro, Horário nobre) se a empresa ainda não tem nenhum.

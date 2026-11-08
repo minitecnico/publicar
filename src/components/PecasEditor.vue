@@ -25,6 +25,7 @@
         <div class="thumb">
           <img v-if="p.midia_tipo === 'imagem'" :src="p.midia_url" alt="" @load="medir(p, $event)" />
           <video v-else-if="p.midia_tipo === 'video'" :src="p.midia_url" muted preload="metadata" @loadedmetadata="medirVideo(p, $event)" />
+          <span v-if="p.origem === 'portal'" class="do-cliente" title="Enviada pelo anunciante no portal">do cliente</span>
           <span v-if="padrao(p)" class="ok-formato" title="No formato padrão das telas">16:9 ✓</span>
           <img v-else-if="idYoutube(p.midia_url)" :src="`https://i.ytimg.com/vi/${idYoutube(p.midia_url)}/mqdefault.jpg`" alt="" />
           <span class="tipo">{{ p.midia_tipo === 'youtube' ? 'YouTube' : p.midia_tipo === 'video' ? `Vídeo · ${p.duracao || '?'}s` : 'Imagem' }}</span>
@@ -120,6 +121,7 @@ interface Peca {
   fim?: string | null
   status: string
   ajuste?: string
+  origem?: string
   _k?: string
 }
 
@@ -302,6 +304,7 @@ function aprovarTodas() {
 .peca.st-aguardando { border-color: #f3d3a6; background: #fffaf2; }
 .thumb { position: relative; width: 168px; aspect-ratio: 16 / 9; background: #111; border-radius: 6px; overflow: hidden; }
 .thumb img, .thumb video { width: 100%; height: 100%; object-fit: contain; }
+.thumb .do-cliente { position: absolute; right: 6px; bottom: 6px; background: var(--azul); color: #fff; font-size: 0.66rem; font-weight: 700; padding: 1px 6px; border-radius: 999px; }
 .thumb .ok-formato { position: absolute; right: 6px; top: 6px; background: var(--verde); color: #fff; font-size: 0.66rem; font-weight: 700; padding: 1px 6px; border-radius: 999px; }
 .alerta .btn { margin-left: 6px; vertical-align: middle; }
 .thumb .tipo { position: absolute; left: 6px; bottom: 6px; background: rgba(0, 0, 0, 0.7); color: #fff; font-size: 0.7rem; padding: 2px 7px; border-radius: 999px; }

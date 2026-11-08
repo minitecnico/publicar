@@ -6,11 +6,46 @@
     rotulo-novo="Novo cliente"
     :campos="campos"
     :padrao="{ tipo: 'anunciante', status: 'ativo', dia_vencimento: 10, valor_mensal: 0, modulos: [] }"
-  />
+  >
+    <template #acoes="{ linha }">
+      <button class="btn pequeno" title="Link do portal: o cliente vê campanhas, envia artes e paga" @click="portal(linha)"><Icone nome="link" :tamanho="14" /> Portal</button>
+      <button v-if="linha.token_portal" class="btn pequeno fantasma perigo" title="O link atual deixa de funcionar" @click="revogar(linha)">Revogar</button>
+    </template>
+  </CrudPage>
 </template>
 
 <script setup lang="ts">
+import { api } from '../api'
 import CrudPage from '../components/CrudPage.vue'
+import Icone from '../components/Icone.vue'
+import { avisar, erro } from '../toast'
+
+/** Portal do anunciante: link exclusivo (sem senha). Copia e abre a conversa no WhatsApp do cliente. */
+async function portal(l: Record<string, any>) {
+  try {
+    const { token } = await api.post<{ token: string }>(`/clientes/${l.id}/portal`)
+    l.token_portal = token
+    const url = `${location.origin}/portal/${token}`
+    try { await navigator.clipboard.writeText(url) } catch { /* sem permissão de cópia */ }
+    const fone = String(l.telefone || '').replace(/\D/g, '')
+    if (fone && confirm('Link copiado. Enviar agora pelo WhatsApp do cliente?')) {
+      const n = fone.length <= 11 ? `55${fone}` : fone
+      window.open(`https://wa.me/${n}?text=${encodeURIComponent(`Olá, ${l.contato || l.nome}! Este é o seu portal de anunciante: acompanhe suas campanhas, envie artes novas e pague suas faturas. ${url}`)}`, '_blank', 'noopener')
+    } else avisar('Link do portal copiado')
+  } catch (e) {
+    erro(e)
+  }
+}
+async function revogar(l: Record<string, any>) {
+  if (!confirm(`Revogar o portal de ${l.nome}? O link atual deixa de funcionar.`)) return
+  try {
+    await api.del(`/clientes/${l.id}/portal`)
+    l.token_portal = null
+    avisar('Portal revogado')
+  } catch (e) {
+    erro(e)
+  }
+}
 import { corStatus, op, type Campo } from '../campos'
 
 const PLANOS = op(

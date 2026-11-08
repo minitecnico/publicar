@@ -22,6 +22,7 @@ export const router = createRouter({
     { path: '/configurar', component: () => import('./views/Setup.vue'), meta: { publica: true } },
     { path: '/tela', component: () => import('./views/Player.vue'), meta: { publica: true } },
     { path: '/tela/:codigo', component: () => import('./views/Player.vue'), meta: { publica: true } },
+    { path: '/portal/:token', component: () => import('./views/PortalAnunciante.vue'), meta: { publica: true } },
     { path: '/midiakit/:token', component: () => import('./views/MidiaKit.vue'), meta: { publica: true } },
     { path: '/validar/:token', component: () => import('./views/ValidarCupom.vue'), meta: { publica: true } },
     { path: '/relatorio/:token', component: () => import('./views/RelatorioPublico.vue'), meta: { publica: true } },
