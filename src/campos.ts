@@ -13,6 +13,7 @@ export type TipoCampo =
   | 'checks'
   | 'horarios'
   | 'pecas'
+  | 'geo'
   | 'telefone'
   | 'email'
 
@@ -38,6 +39,10 @@ export interface Campo {
   mostrarSe?: (form: Record<string, any>) => boolean
   /** formatação da célula na tabela */
   celula?: (valor: any, linha: Record<string, any>, rel: Record<string, Record<number, Record<string, any>>>) => string
+  /** campo 'geo': só o ponto, sem raio (local fixo da tela) */
+  semRaio?: boolean
+  /** texto de exemplo no campo (ex.: o valor padrão usado quando fica vazio) */
+  placeholder?: string | ((form: Record<string, any>) => string)
   /** classe do selo na tabela, se o campo deve aparecer como selo */
   selo?: (valor: any) => string
 }

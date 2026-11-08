@@ -25,6 +25,7 @@
             <span class="mudo pequeno">{{ textoPecas(linha) }}</span>
             <span v-if="pendentes(linha)" class="selo laranja">{{ pendentes(linha) }} aguardando aprovação</span>
             <span v-if="linha.status === 'ativa' && !aprovadas(linha)" class="selo vermelho">sem peça aprovada: não vai ao ar</span>
+            <span v-if="linha.geo && linha.geo.raio_km" class="selo azul" title="Só exibe dentro do raio">cerca {{ linha.geo.raio_km < 1 ? linha.geo.raio_km * 1000 + ' m' : linha.geo.raio_km + ' km' }}</span>
           </div>
         </div>
       </div>
@@ -58,6 +59,7 @@ const campos: Campo[] = [
 
   // espaço comprado
   { key: 'duracao', label: 'Duração do espaço (segundos)', tipo: 'numero', dica: 'Tamanho do espaço vendido (ex.: 10, 15 ou 30s). Imagens ficam esse tempo; vídeos precisam caber nele.' },
+  { key: 'valor', label: 'Valor investido (R$)', tipo: 'dinheiro', dica: 'Total do contrato no período da campanha (sem datas = valor mensal). Usado para calcular o CPM no relatório.' },
   { key: 'prioridade', label: 'Inserções por ciclo', tipo: 'numero', dica: 'De 1 a 5. Cada inserção ocupa um espaço no ciclo (ex.: 2 × 15s = 30s, planos Destaque).' },
 
   // peças
@@ -84,6 +86,7 @@ const campos: Campo[] = [
   { key: 'horarios', label: 'Faixas de horário', tipo: 'horarios', lista: true },
   { key: 'tipo_tela', label: 'Onde exibir', tipo: 'select', opcoes: op(['todas', 'Carros e estabelecimentos'], ['carro', 'Só carros de app'], ['estabelecimento', 'Só estabelecimentos']), lista: true },
   { key: 'telas_alvo', label: 'Telas específicas', tipo: 'telas' },
+  { key: 'geo', label: 'Cerca geográfica (geofence)', tipo: 'geo' },
   {
     key: 'status',
     label: 'Status da campanha',

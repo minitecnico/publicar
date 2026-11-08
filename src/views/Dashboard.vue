@@ -16,6 +16,11 @@
         <strong>{{ numero(d.exibicoes_hoje) }}</strong>
       </div>
       <div class="cartao pad stat">
+        <span>Impactos hoje</span>
+        <strong>{{ numero(d.impactos_hoje) }}</strong>
+        <em>estimativa de pessoas × exibições</em>
+      </div>
+      <div class="cartao pad stat">
         <span>Telas online</span>
         <strong>{{ d.telas_online || 0 }} <small>/ {{ d.telas || 0 }}</small></strong>
       </div>

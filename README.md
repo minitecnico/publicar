@@ -46,17 +46,18 @@ somando todas as telas. Para caber neles:
 
 - A tela busca a programação a cada **15 min**, e essa mesma busca é o **sinal de vida** (1 gravação). São ~96 requisições
   e ~96 gravações por tela por dia. Tela "online" = deu sinal nos últimos 25 min.
-- A prova de exibição fica acumulada no aparelho e é enviada num **intervalo adaptativo**: o servidor calcula
-  `telas × campanhas × envios/dia ≤ 40 mil gravações` e informa a cada tela (mínimo 30 min, máximo 4 h).
+- A prova de exibição e o trajeto GPS ficam acumulados no aparelho e são enviados juntos num **intervalo adaptativo**:
+  o servidor calcula `telas × campanhas × envios/dia ≤ 30 mil gravações` e informa a cada tela (mínimo 30 min, máximo 4 h).
+  O trajeto é agregado em quadrículas de ~1 km (cerca de 100–150 gravações por carro por dia).
   Nada se perde: se a tela ficar sem internet, envia tudo quando voltar.
 
-| Rede | Intervalo de envio | Requisições/dia | Gravações/dia |
+| Rede | Intervalo de envio | Requisições/dia | Gravações/dia (com GPS) |
 | --- | --- | --- | --- |
-| 50 telas, 10 campanhas | 30 min | ~7 mil | ~29 mil |
-| 180 telas, 10 campanhas | 65 min | ~21 mil | ~57 mil |
-| 400 telas, 10 campanhas | 2,4 h | ~42 mil | ~78 mil |
+| 50 carros, 10 campanhas | 30 min | ~7 mil | ~36 mil |
+| 180 carros, 10 campanhas | ~90 min | ~20 mil | ~72 mil |
+| 300 carros, 10 campanhas | ~2,4 h | ~31 mil | ~95 mil |
 
-Acima de ~450 telas, o Workers Paid (US$ 5/mês) amplia os limites para milhões. Uma campanha aprovada chega às telas
+Acima de ~300 carros (ou ~450 telas de estabelecimento, que não andam), o Workers Paid (US$ 5/mês) amplia os limites para milhões. Uma campanha aprovada chega às telas
 em até 15 minutos (ou na hora, ao recarregar o player). O painel "Exibições hoje" pode atrasar até o próximo envio.
 
 ## Colocar no ar (uma vez só)
@@ -110,6 +111,34 @@ e as **peças** são os criativos que giram dentro desse espaço. Trocar ou adic
   no envio) e deve ser exportado em 16:9. O painel avisa sobre resolução abaixo de 1920×1080.
 - **Período e QR por peça:** ex.: peça "Promo de sexta" só às sextas da campanha; cada peça pode levar a um link.
 - **Relatório:** exibições por peça e share real de cada criativo.
+
+## Audiência estimada (impactos, alcance, CPM)
+
+Anunciante e agência compram **pessoas impactadas**, não exibições. Cada tela tem seus números de audiência
+(vazios usam os padrões de *Configurações*):
+
+- **Carro:** corridas por dia × passageiros por corrida, duração média da corrida, horas rodando.
+- **Estabelecimento:** pessoas por dia no local, tempo médio de espera, horas aberto.
+
+| Métrica | Conta |
+| --- | --- |
+| Público no momento | pessoas/dia ÷ horas ligada × minutos diante da tela |
+| Impactos | exibições × público no momento × visibilidade (carro 0,9 · estabelecimento 0,5) |
+| Alcance | pessoas com ao menos uma oportunidade de ver (por tela e dia) |
+| Frequência | impactos ÷ alcance |
+| CPM | investimento no período ÷ impactos × 1.000 (campanha com "Valor investido") |
+
+O relatório da campanha mostra esses números, por dia e por tela, e explica a metodologia (transparência para a agência).
+
+## Localização (GPS), mapa de calor e geofence
+
+- O player pede acesso à localização uma vez. Tablets de carro registram 1 ponto por minuto, agregado em quadrículas
+  de ~1 km; estabelecimentos usam o endereço cadastrado na tela (mapa no formulário).
+- **Mapa de calor** no relatório: as exibições de cada carro em cada dia são distribuídas pelas regiões onde ele passou.
+- **Geofence:** a campanha pode ter uma cerca (endereço + raio de 500 m a 20 km). O player só exibe dentro do raio;
+  sem posição conhecida, não exibe. A cerca é produto premium — no inventário a campanha continua reservando o espaço.
+- Em *Telas*, a última posição de cada tela aparece com link para o mapa.
+- Mapas: Leaflet + OpenStreetMap, carregados só nas páginas que usam mapa; busca de endereço pelo Nominatim.
 
 ## Instalar uma tela
 

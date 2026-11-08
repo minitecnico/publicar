@@ -14,7 +14,7 @@ export const player = new Hono<AppEnv>()
  */
 export const PROGRAMACAO_MIN = 15
 /** Gravações/dia reservadas para a prova de exibição (o resto fica para sinal de vida e para o painel). */
-const ORCAMENTO_EXIBICOES = 40000
+const ORCAMENTO_EXIBICOES = 30000 // + ~30 mil do trajeto GPS dos carros, que vai no mesmo envio
 
 /** Intervalo (min) de envio das exibições: telas × campanhas × envios/dia ≤ orçamento. Entre 30 min e 4 h. */
 export function intervaloExibicoes(telasAtivas: number, campanhasDaTela: number) {
@@ -36,6 +36,21 @@ interface Tela {
   ticker: string | null
   conteudo: string
   status: string
+  local: string | null
+}
+
+/** {lat, lng[, raio_km]} válido ou null. */
+export function lerGeo(v: unknown): { lat: number; lng: number; raio_km?: number } | null {
+  let g: unknown = v
+  if (typeof v === 'string') {
+    try { g = JSON.parse(v) } catch { return null }
+  }
+  const o = g as { lat?: unknown; lng?: unknown; raio_km?: unknown } | null
+  const lat = Number(o?.lat)
+  const lng = Number(o?.lng)
+  if (!o || !Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return null
+  const raio = Number(o.raio_km)
+  return Number.isFinite(raio) && raio > 0 ? { lat, lng, raio_km: Math.min(200, raio) } : { lat, lng }
 }
 
 async function buscarTela(db: D1Database, codigo: string) {
@@ -49,14 +64,15 @@ player.get('/:codigo', async (c) => {
 
   const dia = hoje()
   // sinal de vida junto com a busca da programação (economiza uma requisição e metade das gravações)
-  const info = JSON.stringify({ versao: c.req.query('v') || null, tela: c.req.query('r') || null }).slice(0, 500)
+  const pos = lerGeo({ lat: c.req.query('lat'), lng: c.req.query('lng') })
+  const info = JSON.stringify({ versao: c.req.query('v') || null, tela: c.req.query('r') || null, lat: pos?.lat ?? null, lng: pos?.lng ?? null }).slice(0, 500)
   const [, contagem] = await c.env.DB.batch([
     c.env.DB.prepare("UPDATE telas SET ultimo_ping = datetime('now'), ultima_info = ? WHERE id = ?").bind(info, tela.id),
     c.env.DB.prepare("SELECT COUNT(*) AS n FROM telas WHERE status = 'ativa'"),
   ])
   const telasAtivas = Number((contagem.results[0] as { n: number } | undefined)?.n) || 1
   const { results } = await c.env.DB.prepare(
-    `SELECT id, nome, duracao, link_qr, prioridade, rotacao, telas_alvo, dias_semana, horarios
+    `SELECT id, nome, duracao, link_qr, prioridade, rotacao, telas_alvo, dias_semana, horarios, geo
        FROM campanhas
       WHERE tenant_id = ? AND status = 'ativa'
         AND (inicio IS NULL OR inicio = '' OR inicio <= ?)
@@ -117,6 +133,8 @@ player.get('/:codigo', async (c) => {
       // dia e horário são conferidos no próprio player (ele guarda a programação e funciona offline)
       dias_semana: lista<number>(cp.dias_semana).map(Number),
       horarios: lista<Janela>(cp.horarios),
+      // cerca geográfica: o player só exibe dentro do raio (posição do GPS ou local fixo da tela)
+      geo: lerGeo(cp.geo),
     }))
     // compatibilidade: player antigo (antes das peças) ainda lê a mídia direto da campanha até recarregar
     .map((cp) => ({ ...cp, midia_tipo: cp.pecas[0].tipo, midia_url: cp.pecas[0].url, texto: cp.pecas[0].texto, qr_url: cp.pecas[0].qr_url }))
@@ -136,6 +154,7 @@ player.get('/:codigo', async (c) => {
       logo_url: tela.logo_url,
       ticker: tela.ticker,
       conteudo,
+      local: lerGeo(tela.local),
     },
     campanhas,
     ciclo: await cicloDoTenant(c.env.DB, tela.tenant_id),
@@ -155,42 +174,76 @@ player.post('/:codigo/ping', async (c) => {
   return c.json({ ok: r.meta.changes > 0 })
 })
 
-// Prova de exibição em lote: [{ campanha_id, dia, total, pecas: { "<peca_id>": n } }]
-// Uma linha por campanha/tela/dia; a contagem por peça vai num JSON na mesma linha (economiza gravações no D1).
+// Prova de exibição em lote + trajeto GPS agregado:
+//   itens:   [{ campanha_id, dia, total, pecas: { "<peca_id>": n } }]   (até MAX_ITENS por envio)
+//   trajeto: [{ dia, lat, lng, minutos }]  lat/lng = quadrícula de 0,01° (~1 km)  (até MAX_TRAJETO por envio)
+// Limites do D1 grátis: 50 consultas por requisição e 100 parâmetros por consulta, por isso
+// as gravações vão em INSERTs de várias linhas. O player manda em partes e só apaga o que foi aceito.
+export const MAX_ITENS = 150
+export const MAX_TRAJETO = 285
+const LINHAS_EXIB = 23 // 4 parâmetros por linha + 3 fixos ≤ 100
+const LINHAS_TRAJ = 19 // 5 parâmetros por linha ≤ 100
+
+const partes = <T,>(l: T[], n: number) => Array.from({ length: Math.ceil(l.length / n) }, (_, i) => l.slice(i * n, i * n + n))
+const DIA = /^\d{4}-\d{2}-\d{2}$/
+
 player.post('/:codigo/exibicoes', async (c) => {
   const tela = await buscarTela(c.env.DB, c.req.param('codigo'))
   if (!tela) return c.json({ erro: 'Tela não encontrada' }, 404)
-  const { itens } = await c.req.json<{ itens: { campanha_id: number; dia: string; total: number; pecas?: Record<string, number> }[] }>()
-  const validos = (itens || [])
-    .filter((i) => Number.isInteger(i.campanha_id) && /^\d{4}-\d{2}-\d{2}$/.test(i.dia) && i.total > 0 && i.total < 100000)
-    .slice(0, 200)
-  if (!validos.length) return c.json({ ok: true, gravados: 0 })
+  const corpo = await c.req.json<{
+    itens?: { campanha_id: number; dia: string; total: number; pecas?: Record<string, number> }[]
+    trajeto?: { dia: string; lat: number; lng: number; minutos: number }[]
+  }>()
+  const validos = (corpo.itens || [])
+    .filter((i) => Number.isInteger(i.campanha_id) && DIA.test(i.dia) && i.total > 0 && i.total < 100000)
+    .slice(0, MAX_ITENS)
+  const trajeto = (corpo.trajeto || [])
+    .filter((t) => DIA.test(t.dia) && Math.abs(t.lat) <= 90 && Math.abs(t.lng) <= 180 && t.minutos > 0 && t.minutos <= 1440)
+    .slice(0, MAX_TRAJETO)
+  const db = c.env.DB
+  const stmts: D1PreparedStatement[] = []
 
-  // soma as peças ao que já está gravado
-  const dias = [...new Set(validos.map((i) => i.dia))]
-  const { results: atuais } = await c.env.DB.prepare(
-    `SELECT campanha_id, dia, pecas FROM exibicoes WHERE tela_id = ? AND dia IN (${dias.map(() => '?').join(',')})`,
-  )
-    .bind(tela.id, ...dias)
-    .all<{ campanha_id: number; dia: string; pecas: string }>()
-  const gravadas = new Map(atuais.map((a) => [`${a.campanha_id}|${a.dia}`, a.pecas]))
-
-  const stmt = c.env.DB.prepare(
-    `INSERT INTO exibicoes (tenant_id, campanha_id, tela_id, dia, total, pecas)
-     SELECT ?, id, ?, ?, ?, ? FROM campanhas WHERE id = ? AND tenant_id = ?
-     ON CONFLICT (campanha_id, tela_id, dia) DO UPDATE SET total = total + excluded.total, pecas = excluded.pecas`,
-  )
-  await c.env.DB.batch(
-    validos.map((i) => {
+  if (validos.length) {
+    // soma as peças ao que já está gravado
+    const dias = [...new Set(validos.map((i) => i.dia))].slice(0, 90)
+    const { results: atuais } = await db
+      .prepare(`SELECT campanha_id, dia, pecas FROM exibicoes WHERE tela_id = ? AND dia IN (${dias.map(() => '?').join(',')})`)
+      .bind(tela.id, ...dias)
+      .all<{ campanha_id: number; dia: string; pecas: string }>()
+    const gravadas = new Map(atuais.map((a) => [`${a.campanha_id}|${a.dia}`, a.pecas]))
+    const linhas = validos.map((i) => {
       let pecas: Record<string, number> = {}
       try { pecas = JSON.parse(gravadas.get(`${i.campanha_id}|${i.dia}`) || '{}') } catch { /* recomeça */ }
       for (const [pid, n] of Object.entries(i.pecas || {})) {
         if (/^\d+$/.test(pid) && Number(n) > 0) pecas[pid] = (Number(pecas[pid]) || 0) + Math.round(Number(n))
       }
-      return stmt.bind(tela.tenant_id, tela.id, i.dia, Math.round(i.total), JSON.stringify(pecas), i.campanha_id, tela.tenant_id)
-    }),
-  )
-  return c.json({ ok: true, gravados: validos.length })
+      return [i.campanha_id, i.dia, Math.round(i.total), JSON.stringify(pecas)]
+    })
+    for (const lote of partes(linhas, LINHAS_EXIB)) {
+      stmts.push(
+        db.prepare(
+          `INSERT INTO exibicoes (tenant_id, campanha_id, tela_id, dia, total, pecas)
+           SELECT ?, cp.id, ?, v.column2, v.column3, v.column4
+             FROM (VALUES ${lote.map(() => '(?, ?, ?, ?)').join(', ')}) AS v
+             JOIN campanhas cp ON cp.id = v.column1 AND cp.tenant_id = ?
+            WHERE true
+           ON CONFLICT (campanha_id, tela_id, dia) DO UPDATE SET total = total + excluded.total, pecas = excluded.pecas`,
+        ).bind(tela.tenant_id, tela.id, ...lote.flat(), tela.tenant_id),
+      )
+    }
+  }
+
+  for (const lote of partes(trajeto, LINHAS_TRAJ)) {
+    stmts.push(
+      db.prepare(
+        `INSERT INTO trajetos (tela_id, dia, lat_i, lng_i, minutos) VALUES ${lote.map(() => '(?, ?, ?, ?, ?)').join(', ')}
+         ON CONFLICT (tela_id, dia, lat_i, lng_i) DO UPDATE SET minutos = minutos + excluded.minutos`,
+      ).bind(...lote.flatMap((t) => [tela.id, t.dia, Math.round(t.lat * 100), Math.round(t.lng * 100), Math.round(t.minutos)])),
+    )
+  }
+
+  if (stmts.length) await db.batch(stmts)
+  return c.json({ ok: true, gravados: validos.length, trajeto: trajeto.length })
 })
 
 /** Redirecionamento do QR code: conta a leitura e leva ao link do anunciante. */

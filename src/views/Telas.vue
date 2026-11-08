@@ -18,7 +18,25 @@
       <span class="selo" :class="online(linha.ultimo_ping) ? 'verde' : 'vermelho'" :title="tempoDesde(linha.ultimo_ping)">
         <span class="ponto" /> {{ online(linha.ultimo_ping) ? 'Online' : 'Offline' }}
       </span>
-      <div class="mudo pequeno">{{ tempoDesde(linha.ultimo_ping) }}</div>
+      <div class="mudo pequeno">
+        {{ tempoDesde(linha.ultimo_ping) }}
+        <a v-if="posicao(linha)" :href="`https://www.openstreetmap.org/?mlat=${posicao(linha)!.lat}&mlon=${posicao(linha)!.lng}#map=16/${posicao(linha)!.lat}/${posicao(linha)!.lng}`" target="_blank" rel="noopener">· ver no mapa</a>
+      </div>
+    </template>
+    <template #celula-audiencia="{ linha }">
+      <strong>{{ numero(Math.round(audienciaTela(linha, padroes).pessoas)) }}</strong>
+      <span class="mudo pequeno"> pessoas/dia</span>
+    </template>
+    <template #formulario="{ form }">
+      <div class="previa-aud">
+        <strong>Audiência estimada desta tela</strong>
+        <span>
+          ≈ <b>{{ numero(Math.round(audienciaTela(form, padroes).pessoas)) }}</b> pessoas por dia ·
+          <b>{{ audienciaTela(form, padroes).publico.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) }}</b> diante da tela a cada momento ·
+          <b>{{ audienciaTela(form, padroes).impactosPorExibicao.toLocaleString('pt-BR', { maximumFractionDigits: 2 }) }}</b> impactos por exibição
+        </span>
+        <span class="mudo pequeno">Campos de audiência vazios usam os padrões de Configurações. Quanto mais real o número informado, mais confiável o relatório para o anunciante.</span>
+      </div>
     </template>
     <template #acoes="{ linha }">
       <button class="btn pequeno" title="Instalar na tela" @click="abrirInstalacao(linha)"><Icone nome="qr" :tamanho="14" /> Instalar</button>
@@ -46,15 +64,30 @@
 
 <script setup lang="ts">
 import QRCode from 'qrcode'
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import CrudPage from '../components/CrudPage.vue'
 import Icone from '../components/Icone.vue'
 import Modal from '../components/Modal.vue'
 import { corStatus, op, type Campo } from '../campos'
-import { online, tempoDesde } from '../format'
+import { audienciaTela, comPadrao } from '../audiencia'
+import { api } from '../api'
+import { numero, online, tempoDesde } from '../format'
 import { avisar } from '../toast'
 
 const crud = ref<InstanceType<typeof CrudPage>>()
+const padroes = ref(comPadrao(null))
+onMounted(async () => {
+  try { padroes.value = comPadrao((await api.get('/config')).config?.audiencia) } catch { /* usa os padrões */ }
+})
+/** Última posição enviada pelo GPS da tela (fica no sinal de vida). */
+function posicao(l: Record<string, any>): { lat: number; lng: number } | null {
+  try {
+    const i = typeof l.ultima_info === 'string' ? JSON.parse(l.ultima_info) : l.ultima_info
+    return i && Number.isFinite(i.lat) && Number.isFinite(i.lng) && i.lat !== null ? { lat: i.lat, lng: i.lng } : null
+  } catch {
+    return null
+  }
+}
 const instalando = ref<Record<string, any> | null>(null)
 const qr = ref('')
 const origem = location.origin
@@ -68,6 +101,22 @@ const campos: Campo[] = [
   { key: 'motorista_id', label: 'Motorista', tipo: 'relacao', relacao: 'motoristas', mostrarSe: (f) => f.tipo === 'carro' },
   { key: 'cliente_id', label: 'Estabelecimento', tipo: 'relacao', relacao: 'clientes', filtroRelacao: (c) => c.tipo !== 'anunciante', mostrarSe: (f) => f.tipo === 'estabelecimento' },
   { key: 'bairro', label: 'Bairro / região', lista: true },
+  { key: 'audiencia', label: 'Audiência', lista: true, mostrarSe: () => false },
+
+  // audiência (vazio = padrão da empresa)
+  { key: 'corridas_dia', label: 'Corridas por dia', tipo: 'numero', mostrarSe: (f) => f.tipo === 'carro', placeholder: () => `padrão: ${padroes.value.carro.corridas}`, dica: 'Média informada pelo motorista (veja no app de corridas).' },
+  { key: 'passageiros_corrida', label: 'Passageiros por corrida', tipo: 'numero', mostrarSe: (f) => f.tipo === 'carro', placeholder: () => `padrão: ${padroes.value.carro.passageiros}` },
+  { key: 'fluxo_dia', label: 'Pessoas por dia no local', tipo: 'numero', mostrarSe: (f) => f.tipo === 'estabelecimento', placeholder: () => `padrão: ${padroes.value.estabelecimento.fluxo}`, dica: 'Clientes atendidos por dia (pergunte ao estabelecimento).' },
+  {
+    key: 'permanencia_min',
+    label: 'Minutos diante da tela',
+    tipo: 'numero',
+    placeholder: (f) => `padrão: ${f.tipo === 'carro' ? padroes.value.carro.permanencia : padroes.value.estabelecimento.permanencia}`,
+    dica: 'Carro: duração média da corrida. Estabelecimento: tempo médio de espera.',
+  },
+  { key: 'horas_operacao', label: 'Horas ligada por dia', tipo: 'numero', placeholder: (f) => `padrão: ${f.tipo === 'carro' ? padroes.value.carro.horas : padroes.value.estabelecimento.horas}` },
+  { key: 'local', label: 'Localização do estabelecimento', tipo: 'geo', semRaio: true, mostrarSe: (f) => f.tipo === 'estabelecimento' },
+
   {
     key: 'layout',
     label: 'Layout',
@@ -101,4 +150,6 @@ async function copiar() {
 .instalar ol { padding-left: 18px; margin: 6px 0 12px; color: var(--texto-2); }
 .endereco code { display: block; background: #f4f3ef; padding: 8px 10px; border-radius: 6px; word-break: break-all; margin-bottom: 8px; }
 @media (max-width: 640px) { .instalar { grid-template-columns: 1fr; } }
+.previa-aud { display: flex; flex-direction: column; gap: 3px; border: 1px solid #c9dcf0; background: var(--azul-claro); border-radius: 8px; padding: 12px 14px; }
+.previa-aud strong { color: var(--azul); }
 </style>

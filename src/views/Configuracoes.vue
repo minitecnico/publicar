@@ -24,6 +24,31 @@
         </label>
       </div>
 
+      <h2 class="secao">Audiência (padrões)</h2>
+      <p class="mudo pequeno" style="margin: 4px 0 12px">
+        Usados nas telas que não têm números próprios. Metodologia: público no momento = pessoas por dia ÷ horas ligada × minutos diante
+        da tela; impactos = exibições × público no momento × visibilidade. É a conta que agências usam para comparar CPM.
+      </p>
+      <div class="aud">
+        <fieldset>
+          <legend>Carros de aplicativo</legend>
+          <label class="campo">Corridas por dia <input v-model.number="aud.carro.corridas" type="number" step="any" min="0" /></label>
+          <label class="campo">Passageiros por corrida <input v-model.number="aud.carro.passageiros" type="number" step="any" min="0" /></label>
+          <label class="campo">Duração média da corrida (min) <input v-model.number="aud.carro.permanencia" type="number" step="any" min="1" /></label>
+          <label class="campo">Horas rodando por dia <input v-model.number="aud.carro.horas" type="number" step="any" min="1" max="24" /></label>
+          <label class="campo">Visibilidade (0 a 1) <input v-model.number="aud.carro.visibilidade" type="number" step="0.05" min="0.05" max="1" />
+            <span class="dica">Tablet no encosto, de frente para o passageiro: 0,9.</span></label>
+        </fieldset>
+        <fieldset>
+          <legend>Estabelecimentos</legend>
+          <label class="campo">Pessoas por dia <input v-model.number="aud.estabelecimento.fluxo" type="number" step="any" min="0" /></label>
+          <label class="campo">Tempo médio de espera (min) <input v-model.number="aud.estabelecimento.permanencia" type="number" step="any" min="1" /></label>
+          <label class="campo">Horas aberto por dia <input v-model.number="aud.estabelecimento.horas" type="number" step="any" min="1" max="24" /></label>
+          <label class="campo">Visibilidade (0 a 1) <input v-model.number="aud.estabelecimento.visibilidade" type="number" step="0.05" min="0.05" max="1" />
+            <span class="dica">TV na sala de espera, nem sempre no campo de visão: 0,5.</span></label>
+        </fieldset>
+      </div>
+
       <h2 class="secao">Módulos ativos</h2>
       <p class="mudo pequeno" style="margin: 4px 0 12px">Ligue só o que você usa. O menu se ajusta na hora.</p>
       <div class="modulos">
@@ -86,6 +111,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { api } from '../api'
+import { comPadrao, type PadroesAudiencia } from '../audiencia'
 import { definirModulos, sessao } from '../auth'
 import Icone from '../components/Icone.vue'
 import Modal from '../components/Modal.vue'
@@ -100,6 +126,7 @@ const MODULOS = [
 ]
 
 const cfg = reactive<{ nome: string; modulos: string[]; config: Record<string, any> }>({ nome: '', modulos: [], config: {} })
+const aud = reactive<PadroesAudiencia>(comPadrao(null))
 const usuarios = ref<any[]>([])
 const salvando = ref(false)
 const novoUsuario = ref(false)
@@ -117,6 +144,7 @@ async function carregar() {
     cfg.nome = r.nome
     cfg.modulos = r.modulos || []
     cfg.config = r.config || {}
+    Object.assign(aud, comPadrao(cfg.config.audiencia))
     if (sessao.usuario?.papel === 'admin') usuarios.value = await api.get('/usuarios')
   } catch (e) {
     erro(e)
@@ -126,6 +154,7 @@ async function carregar() {
 async function salvar() {
   salvando.value = true
   try {
+    cfg.config.audiencia = JSON.parse(JSON.stringify(aud))
     await api.put('/config', cfg)
     definirModulos([...cfg.modulos])
     avisar('Configurações salvas')
@@ -169,4 +198,8 @@ onMounted(carregar)
 .modulo strong { display: block; }
 .modulo span { font-size: 0.8rem; color: var(--texto-2); }
 .sobre p { margin: 6px 0 0; }
+.aud { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.aud fieldset { border: 1px solid var(--borda); border-radius: 10px; padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 10px; margin: 0; }
+.aud legend { font-weight: 700; padding: 0 6px; }
+@media (max-width: 700px) { .aud { grid-template-columns: 1fr; } }
 </style>

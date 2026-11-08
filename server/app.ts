@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { conferirSenha, emitirToken, exigirAdmin, exigirLogin, hashSenha } from './auth'
+import { cteAudiencia, investimentoNoPeriodo, metricas, padroesAudiencia, SQL_ALCANCE, SQL_IMPACTOS } from './audiencia'
 import { crud } from './crud'
 import { carregarGrade, cicloDoTenant, ocupacao, rodaNaTela, segundosNoCiclo, verificarCampanha } from './grade'
 import { enviarMidia, servirMidia } from './media'
@@ -115,6 +116,7 @@ app.get('/dashboard', async (c) => {
   const mes = mesAtual()
   const seteDias = hoje(new Date(Date.now() - 6 * 86400000))
   const db = c.env.DB
+  const cte = cteAudiencia(await padroesAudiencia(db, tid), tid)
   const [clientes, campanhas, telas, motoristas, fin, exib, serie, mrr] = await db.batch([
     db.prepare("SELECT COUNT(*) AS n FROM clientes WHERE tenant_id = ? AND status = 'ativo'").bind(tid),
     db.prepare("SELECT COUNT(*) AS n FROM campanhas WHERE tenant_id = ? AND status = 'ativa'").bind(tid),
@@ -129,7 +131,7 @@ app.get('/dashboard', async (c) => {
          SUM(CASE WHEN status = 'paga' AND substr(pago_em, 1, 7) = ? THEN valor ELSE 0 END) AS recebido_mes
        FROM faturas WHERE tenant_id = ?`,
     ).bind(dia, mes, tid),
-    db.prepare('SELECT COALESCE(SUM(total), 0) AS hoje FROM exibicoes WHERE tenant_id = ? AND dia = ?').bind(tid, dia),
+    db.prepare(`${cte.sql} SELECT COALESCE(SUM(e.total), 0) AS hoje, ${SQL_IMPACTOS} AS impactos FROM exibicoes e LEFT JOIN aud a ON a.id = e.tela_id WHERE e.tenant_id = ? AND e.dia = ?`).bind(...cte.binds, tid, dia),
     db.prepare('SELECT dia, SUM(total) AS total, SUM(qr) AS qr FROM exibicoes WHERE tenant_id = ? AND dia >= ? GROUP BY dia ORDER BY dia').bind(tid, seteDias),
     db.prepare("SELECT COALESCE(SUM(valor_mensal), 0) AS v FROM clientes WHERE tenant_id = ? AND status = 'ativo'").bind(tid),
   ])
@@ -145,6 +147,7 @@ app.get('/dashboard', async (c) => {
     recebido_mes: um(fin).recebido_mes || 0,
     receita_recorrente: um(mrr).v || 0,
     exibicoes_hoje: um(exib).hoje || 0,
+    impactos_hoje: Math.round(um(exib).impactos || 0),
     serie_7dias: serie.results,
   })
 })
@@ -153,19 +156,24 @@ app.get('/relatorios', async (c) => {
   const tid = c.get('sessao').tid
   const de = c.req.query('de') || hoje(new Date(Date.now() - 29 * 86400000))
   const ate = c.req.query('ate') || hoje()
+  const cte = cteAudiencia(await padroesAudiencia(c.env.DB, tid), tid)
   const { results } = await c.env.DB.prepare(
-    `SELECT cp.id, cp.nome, cl.nome AS cliente, cp.status,
+    `${cte.sql}
+     SELECT cp.id, cp.nome, cl.nome AS cliente, cp.status, cp.valor, cp.inicio, cp.fim,
             COALESCE(SUM(e.total), 0) AS exibicoes, COALESCE(SUM(e.qr), 0) AS qr,
-            COUNT(DISTINCT e.tela_id) AS telas, COUNT(DISTINCT e.dia) AS dias
+            COUNT(DISTINCT e.tela_id) AS telas, COUNT(DISTINCT e.dia) AS dias,
+            ${SQL_IMPACTOS} AS impactos, ${SQL_ALCANCE} AS alcance
        FROM campanhas cp
        LEFT JOIN clientes cl ON cl.id = cp.cliente_id
        LEFT JOIN exibicoes e ON e.campanha_id = cp.id AND e.dia BETWEEN ? AND ?
+       LEFT JOIN aud a ON a.id = e.tela_id
       WHERE cp.tenant_id = ?
-      GROUP BY cp.id ORDER BY exibicoes DESC`,
+      GROUP BY cp.id ORDER BY impactos DESC, exibicoes DESC`,
   )
-    .bind(de, ate, tid)
-    .all()
-  return c.json({ de, ate, campanhas: results })
+    .bind(...cte.binds, de, ate, tid)
+    .all<Record<string, any>>()
+  const campanhas = results.map((r) => ({ ...r, ...metricas(r as any, investimentoNoPeriodo(r.valor, r.inicio, r.fim, de, ate)) }))
+  return c.json({ de, ate, campanhas })
 })
 
 app.get('/relatorios/campanha/:id', async (c) => {
@@ -174,13 +182,37 @@ app.get('/relatorios/campanha/:id', async (c) => {
   const de = c.req.query('de') || hoje(new Date(Date.now() - 29 * 86400000))
   const ate = c.req.query('ate') || hoje()
   const db = c.env.DB
-  const [porDia, porTela, linhasPecas, pecas] = await db.batch([
-    db.prepare('SELECT dia, SUM(total) AS total, SUM(qr) AS qr FROM exibicoes WHERE tenant_id = ? AND campanha_id = ? AND dia BETWEEN ? AND ? GROUP BY dia ORDER BY dia').bind(tid, id, de, ate),
+  const padroes = await padroesAudiencia(db, tid)
+  const cte = cteAudiencia(padroes, tid)
+  const [porDia, porTela, linhasPecas, pecas, camp, mapa] = await db.batch([
     db.prepare(
-      'SELECT t.nome, t.tipo, t.bairro, SUM(e.total) AS total, SUM(e.qr) AS qr FROM exibicoes e JOIN telas t ON t.id = e.tela_id WHERE e.tenant_id = ? AND e.campanha_id = ? AND e.dia BETWEEN ? AND ? GROUP BY t.id ORDER BY total DESC',
-    ).bind(tid, id, de, ate),
+      `${cte.sql} SELECT e.dia, SUM(e.total) AS total, SUM(e.qr) AS qr, ${SQL_IMPACTOS} AS impactos, ${SQL_ALCANCE} AS alcance
+         FROM exibicoes e LEFT JOIN aud a ON a.id = e.tela_id
+        WHERE e.tenant_id = ? AND e.campanha_id = ? AND e.dia BETWEEN ? AND ? GROUP BY e.dia ORDER BY e.dia`,
+    ).bind(...cte.binds, tid, id, de, ate),
+    db.prepare(
+      `${cte.sql} SELECT t.id, t.nome, t.tipo, t.bairro, SUM(e.total) AS total, SUM(e.qr) AS qr, ${SQL_IMPACTOS} AS impactos, ${SQL_ALCANCE} AS alcance
+         FROM exibicoes e JOIN telas t ON t.id = e.tela_id LEFT JOIN aud a ON a.id = e.tela_id
+        WHERE e.tenant_id = ? AND e.campanha_id = ? AND e.dia BETWEEN ? AND ? GROUP BY t.id ORDER BY impactos DESC`,
+    ).bind(...cte.binds, tid, id, de, ate),
     db.prepare('SELECT pecas FROM exibicoes WHERE tenant_id = ? AND campanha_id = ? AND dia BETWEEN ? AND ?').bind(tid, id, de, ate),
     db.prepare('SELECT id, nome, midia_tipo, midia_url, status FROM pecas WHERE tenant_id = ? AND campanha_id = ? ORDER BY ordem, id').bind(tid, id),
+    db.prepare('SELECT valor, inicio, fim, geo FROM campanhas WHERE id = ? AND tenant_id = ?').bind(id, tid),
+    // mapa de calor: as exibições de cada tela/dia são distribuídas pelas quadrículas onde o carro passou,
+    // na proporção dos minutos em cada uma
+    db.prepare(
+      `WITH tot AS (
+         SELECT tr.tela_id, tr.dia, SUM(tr.minutos) AS m FROM trajetos tr
+          WHERE tr.dia BETWEEN ? AND ? AND tr.tela_id IN (SELECT id FROM telas WHERE tenant_id = ?)
+          GROUP BY tr.tela_id, tr.dia)
+       SELECT tr.lat_i, tr.lng_i, SUM(e.total * tr.minutos * 1.0 / tot.m) AS exibicoes, SUM(tr.minutos) AS minutos
+         FROM trajetos tr
+         JOIN tot ON tot.tela_id = tr.tela_id AND tot.dia = tr.dia
+         JOIN exibicoes e ON e.tela_id = tr.tela_id AND e.dia = tr.dia AND e.campanha_id = ? AND e.tenant_id = ?
+        WHERE tr.dia BETWEEN ? AND ?
+        GROUP BY tr.lat_i, tr.lng_i
+        ORDER BY exibicoes DESC LIMIT 2000`,
+    ).bind(de, ate, tid, id, tid, de, ate),
   ])
   // soma a contagem por peça guardada em JSON em cada linha agregada
   const somaPecas: Record<string, number> = {}
@@ -193,7 +225,22 @@ app.get('/relatorios/campanha/:id', async (c) => {
     ...p,
     total: somaPecas[String(p.id)] || 0,
   }))
-  return c.json({ de, ate, por_dia: porDia.results, por_tela: porTela.results, por_peca: porPeca })
+  const dias = porDia.results as { total: number; qr: number; impactos: number; alcance: number }[]
+  const soma = (k: 'total' | 'qr' | 'impactos' | 'alcance') => dias.reduce((s, d) => s + Number(d[k] || 0), 0)
+  const cp = (camp.results[0] || {}) as { valor: number; inicio: string | null; fim: string | null; geo: string | null }
+  let geo = null
+  try { geo = cp.geo ? JSON.parse(cp.geo) : null } catch { /* sem cerca */ }
+  return c.json({
+    de,
+    ate,
+    resumo: { exibicoes: soma('total'), qr: soma('qr'), ...metricas({ exibicoes: soma('total'), impactos: soma('impactos'), alcance: soma('alcance') }, investimentoNoPeriodo(cp.valor, cp.inicio, cp.fim, de, ate)) },
+    por_dia: dias,
+    por_tela: porTela.results,
+    por_peca: porPeca,
+    mapa: (mapa.results as { lat_i: number; lng_i: number; exibicoes: number; minutos: number }[]).map((m) => ({ lat: m.lat_i / 100, lng: m.lng_i / 100, exibicoes: Math.round(m.exibicoes), minutos: m.minutos })),
+    geo,
+    metodologia: padroes,
+  })
 })
 
 app.get('/financeiro', async (c) => {

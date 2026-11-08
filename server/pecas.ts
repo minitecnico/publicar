@@ -29,7 +29,7 @@ export function limparPecas(v: unknown): Peca[] {
   if (!Array.isArray(v)) return []
   return v
     .filter((p) => p && typeof p === 'object' && (p.midia_url || '').trim())
-    .slice(0, 50)
+    .slice(0, 40) // limite do D1 grátis: 50 consultas por requisição (1 por peça + leituras)
     .map((p, i) => ({
       id: Number(p.id) || undefined,
       nome: p.nome ? String(p.nome).slice(0, 120) : null,

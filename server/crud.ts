@@ -41,15 +41,18 @@ export const RECURSOS: Record<string, Recurso> = {
   },
   telas: {
     tabela: 'telas',
-    colunas: ['nome', 'tipo', 'cliente_id', 'motorista_id', 'bairro', 'layout', 'cor_primaria', 'cor_fundo', 'logo_url', 'ticker', 'conteudo', 'status'],
-    json: ['conteudo'],
+    colunas: [
+      'nome', 'tipo', 'cliente_id', 'motorista_id', 'bairro', 'layout', 'cor_primaria', 'cor_fundo', 'logo_url', 'ticker', 'conteudo', 'status',
+      'corridas_dia', 'passageiros_corrida', 'fluxo_dia', 'permanencia_min', 'horas_operacao', 'local',
+    ],
+    json: ['conteudo', 'local'],
     obrigatorias: ['nome'],
     aoCriar: (d) => ({ ...d, codigo: codigoTela() }),
   },
   campanhas: {
     tabela: 'campanhas',
-    colunas: ['cliente_id', 'nome', 'midia_tipo', 'midia_url', 'duracao', 'link_qr', 'texto', 'inicio', 'fim', 'tipo_tela', 'telas_alvo', 'dias_semana', 'horarios', 'prioridade', 'rotacao', 'status'],
-    json: ['telas_alvo', 'dias_semana', 'horarios'],
+    colunas: ['cliente_id', 'nome', 'midia_tipo', 'midia_url', 'duracao', 'link_qr', 'texto', 'inicio', 'fim', 'tipo_tela', 'telas_alvo', 'dias_semana', 'horarios', 'prioridade', 'rotacao', 'status', 'valor', 'geo'],
+    json: ['telas_alvo', 'dias_semana', 'horarios', 'geo'],
     obrigatorias: ['nome'],
     validar: async (db, tid, dados, id, corpo) => {
       // vídeo das peças precisa caber no espaço comprado
@@ -82,10 +85,15 @@ export const RECURSOS: Record<string, Recurso> = {
   },
 }
 
+/** Colunas JSON que aceitam "sem valor" (null) em vez de lista vazia. */
+const JSON_NULAVEL = ['geo', 'local']
+/** Números opcionais: campo vazio no formulário = usa o padrão. */
+const NUMERICAS_NULAVEIS = ['corridas_dia', 'passageiros_corrida', 'fluxo_dia', 'permanencia_min', 'horas_operacao', 'valor']
+
 function deserializar(r: Recurso, row: Record<string, unknown>) {
   for (const k of r.json || []) {
     if (typeof row[k] === 'string') {
-      try { row[k] = JSON.parse(row[k] as string) } catch { row[k] = [] }
+      try { row[k] = JSON.parse(row[k] as string) } catch { row[k] = JSON_NULAVEL.includes(k) ? null : [] }
     }
   }
   return row
@@ -96,7 +104,8 @@ function limpar(r: Recurso, corpo: Record<string, unknown>) {
   for (const k of r.colunas) {
     if (!(k in corpo)) continue
     let v = corpo[k]
-    if ((r.json || []).includes(k)) v = JSON.stringify(v ?? [])
+    if ((r.json || []).includes(k)) v = v === null && JSON_NULAVEL.includes(k) ? null : JSON.stringify(v ?? [])
+    else if (v === '' && NUMERICAS_NULAVEIS.includes(k)) v = null
     else if (v === '' && k.endsWith('_id')) v = null
     else if (typeof v === 'boolean') v = v ? 1 : 0
     out[k] = v ?? null
