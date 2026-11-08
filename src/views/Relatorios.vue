@@ -55,7 +55,18 @@
     <Modal :aberto="!!det" :titulo="`Relatório: ${det?.nome}`" larga @fechar="det = null">
       <div v-if="det && !detalhe" class="mudo">Carregando…</div>
       <div v-if="det && detalhe" class="relatorio">
-        <p class="mudo" style="margin-top: 0">{{ data(detalhe.de) }} a {{ data(detalhe.ate) }} · {{ det.cliente || 'sem anunciante' }}</p>
+        <div class="cab-det">
+          <p class="mudo" style="margin: 0">{{ data(detalhe.de) }} a {{ data(detalhe.ate) }} · {{ det.cliente || 'sem anunciante' }}</p>
+          <div class="link-pub nao-imprimir">
+            <template v-if="linkPublico">
+              <input :value="linkPublico" readonly aria-label="Link do relatório para o anunciante" @focus="($event.target as HTMLInputElement).select()" />
+              <button class="btn pequeno" @click="copiarLink"><Icone nome="link" :tamanho="14" /> Copiar</button>
+              <a class="btn pequeno" :href="whatsLink" target="_blank" rel="noopener"><Icone nome="whatsapp" :tamanho="14" /> Enviar</a>
+              <button class="btn pequeno fantasma perigo" title="O link atual deixa de funcionar" @click="revogarLink">Revogar</button>
+            </template>
+            <button v-else class="btn pequeno destaque" @click="gerarLink"><Icone nome="link" :tamanho="14" /> Link ao vivo para o anunciante</button>
+          </div>
+        </div>
 
         <div class="kpis">
           <div class="kpi"><span>Exibições</span><strong>{{ numero(detalhe.resumo.exibicoes) }}</strong></div>
@@ -64,6 +75,19 @@
           <div class="kpi"><span>Frequência</span><strong>{{ detalhe.resumo.frequencia ? detalhe.resumo.frequencia.toLocaleString('pt-BR') + '×' : '—' }}</strong><em>vezes que cada pessoa viu</em></div>
           <div class="kpi"><span>CPM</span><strong>{{ detalhe.resumo.cpm != null ? moeda(detalhe.resumo.cpm) : '—' }}</strong><em>{{ detalhe.resumo.investimento != null ? `${moeda(detalhe.resumo.investimento)} no período` : 'informe o valor investido' }}</em></div>
           <div class="kpi"><span>QR lidos</span><strong>{{ numero(detalhe.resumo.qr) }}</strong><em>{{ detalhe.resumo.impactos ? `${((detalhe.resumo.qr / detalhe.resumo.impactos) * 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} a cada mil impactos` : '' }}</em></div>
+        </div>
+
+        <div class="bloco">
+          <h3>Por hora do dia</h3>
+          <BarrasHoras :serie="detalhe.por_hora" />
+        </div>
+
+        <div v-if="detalhe.por_bairro?.length" class="bloco">
+          <h3>Por região</h3>
+          <table class="tabela">
+            <thead><tr><th>Bairro / região</th><th class="num">Telas</th><th class="num">Exibições</th><th class="num">Impactos</th><th class="num">QR</th></tr></thead>
+            <tbody><tr v-for="b in detalhe.por_bairro" :key="b.bairro"><td>{{ b.bairro }}</td><td class="num">{{ b.telas }}</td><td class="num">{{ numero(b.total) }}</td><td class="num">{{ numero(Math.round(b.impactos)) }}</td><td class="num">{{ b.qr }}</td></tr></tbody>
+          </table>
         </div>
 
         <div v-if="detalhe.por_peca?.length" class="bloco">
@@ -114,6 +138,7 @@
             <li><strong>Impactos</strong> = exibições × público no momento × visibilidade (carro {{ detalhe.metodologia.carro.visibilidade }}, estabelecimento {{ detalhe.metodologia.estabelecimento.visibilidade }}).</li>
             <li><strong>Alcance</strong> = pessoas que tiveram ao menos uma oportunidade de ver, somadas por tela e dia. <strong>Frequência</strong> = impactos ÷ alcance.</li>
             <li><strong>CPM</strong> = investimento no período ÷ impactos × 1.000.</li>
+            <li><strong>Exibição</strong> só conta quando a peça passou por completo (vídeo até o fim; imagem ao menos 90% do tempo) com a tela ativa.</li>
             <li>
               Padrões — carro: {{ detalhe.metodologia.carro.corridas }} corridas/dia × {{ detalhe.metodologia.carro.passageiros }} passageiros, corridas de
               {{ detalhe.metodologia.carro.permanencia }} min, {{ detalhe.metodologia.carro.horas }} h/dia · estabelecimento:
@@ -130,11 +155,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { api } from '../api'
+import BarrasHoras from '../components/BarrasHoras.vue'
 import Icone from '../components/Icone.vue'
 import Modal from '../components/Modal.vue'
 import { corStatus } from '../campos'
 import { data, diasAtras, hoje, moeda, numero } from '../format'
-import { erro } from '../toast'
+import { avisar, erro } from '../toast'
 
 const de = ref(diasAtras(29))
 const ate = ref(hoje())
@@ -153,9 +179,41 @@ async function carregar() {
   }
 }
 
+/* ---------- link público do relatório */
+const token = ref<string | null>(null)
+const linkPublico = computed(() => (token.value ? `${location.origin}/relatorio/${token.value}` : ''))
+const whatsLink = computed(() => `https://wa.me/?text=${encodeURIComponent(`Acompanhe sua campanha "${det.value?.nome}" ao vivo: ${linkPublico.value}`)}`)
+async function gerarLink() {
+  try {
+    token.value = (await api.post<{ token: string }>(`/campanhas/${det.value.id}/link`)).token
+    await copiarLink()
+  } catch (e) {
+    erro(e)
+  }
+}
+async function copiarLink() {
+  try {
+    await navigator.clipboard.writeText(linkPublico.value)
+    avisar('Link copiado: envie ao anunciante')
+  } catch {
+    avisar('Selecione o link e copie')
+  }
+}
+async function revogarLink() {
+  if (!confirm('Revogar o link? Quem tiver o link atual perde o acesso.')) return
+  try {
+    await api.del(`/campanhas/${det.value.id}/link`)
+    token.value = null
+    avisar('Link revogado')
+  } catch (e) {
+    erro(e)
+  }
+}
+
 async function detalhar(l: any) {
   det.value = l
   detalhe.value = null
+  token.value = l.token_publico || null
   try {
     detalhe.value = await api.get(`/relatorios/campanha/${l.id}?de=${de.value}&ate=${ate.value}`)
   } catch (e) {
@@ -185,6 +243,9 @@ tfoot td { border-top: 2px solid var(--borda); background: #fbfaf8; }
 .mini { width: 48px; height: 27px; border-radius: 5px; background: #1e1e1e; overflow: hidden; display: grid; place-items: center; color: #fff; font-size: 0.65rem; flex-shrink: 0; }
 .mini img, .mini video { width: 100%; height: 100%; object-fit: cover; }
 .metodologia summary { cursor: pointer; font-weight: 600; }
+.cab-det { display: flex; justify-content: space-between; gap: 10px; align-items: center; flex-wrap: wrap; }
+.link-pub { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.link-pub input { width: 260px; font-size: 0.8rem; padding: 5px 8px; }
 .metodologia ul { margin: 8px 0 0; padding-left: 18px; font-size: 0.85rem; color: var(--texto-2); display: flex; flex-direction: column; gap: 4px; }
 @media (max-width: 700px) { .duas, .kpis { grid-template-columns: 1fr 1fr; } }
 </style>

@@ -39,7 +39,7 @@
                   autoplay
                   playsinline
                   :muted="mudo"
-                  @ended="avancar"
+                  @ended="fimDoVideo"
                   @error="avancarDepois(2)"
                 />
                 <iframe
@@ -148,7 +148,7 @@ interface Dados {
 }
 interface Item { chave: string; tipo: string; url?: string; duracao: number; texto?: string | null; titulo?: string; qr?: string; campanhaId?: number; pecaId?: number }
 
-const VERSAO = '0.6.0'
+const VERSAO = '0.7.0'
 const route = useRoute()
 const router = useRouter()
 
@@ -367,16 +367,41 @@ function proximoItem(): Item | null {
   return montarAnuncio(ads[iAnuncio++ % ads.length], `a${rodada}`)
 }
 
+/* Prova de exibição contada na CONCLUSÃO da peça (padrão de auditoria de DOOH):
+   - vídeo: só se tocou até o fim (evento "ended");
+   - imagem/YouTube: só se ficou ao menos 90% da duração na tela;
+   - em nenhum caso se a tela ficou oculta (aba em segundo plano, tela apagada) ou coberta pelo aviso de início. */
+interface EmCurso { item: Item; inicio: number; terminou: boolean; oculto: boolean }
+let emCurso: EmCurso | null = null
+let emCursoLateral: EmCurso | null = null
+const comecar = (item: Item | null): EmCurso | null =>
+  item?.campanhaId ? { item, inicio: Date.now(), terminou: false, oculto: document.visibilityState !== 'visible' || mostrarInicio.value } : null
+function concluir(e: EmCurso | null, exigeFim: boolean) {
+  if (!e || !e.item.campanhaId || e.oculto || document.visibilityState !== 'visible') return
+  const completo = exigeFim ? e.terminou : (Date.now() - e.inicio) / 1000 >= e.item.duracao * 0.9
+  if (completo) registrarExibicao(e.item.campanhaId, e.item.pecaId)
+}
+function fimDoVideo() {
+  if (emCurso) emCurso.terminou = true
+  avancar()
+}
+function marcarOculto() {
+  if (document.visibilityState === 'visible') return
+  if (emCurso) emCurso.oculto = true
+  if (emCursoLateral) emCursoLateral.oculto = true
+}
+
 function avancar() {
   clearTimeout(timer)
+  concluir(emCurso, emCurso?.item.tipo === 'video')
   rodada++
   const item = proximoItem()
   atual.value = item
+  emCurso = comecar(item)
   if (!item) {
     timer = window.setTimeout(avancar, 10000)
     return
   }
-  if (item.campanhaId) registrarExibicao(item.campanhaId, item.pecaId)
   // vídeo avança no "ended"; a trava de segurança evita ficar parado se o vídeo travar
   // (anúncio: duração da peça + folga; entretenimento: até 5 min)
   const segundos = item.tipo === 'video' ? (item.campanhaId ? item.duracao + 3 : 300) : Math.max(5, item.duracao)
@@ -388,10 +413,12 @@ function avancarLateral() {
   clearTimeout(timerLateral)
   const ads = anuncios.value
   if (!layoutLateral.value || !ads.length) { lateralAtual.value = null; return }
+  // coluna lateral: vídeo fica em loop, então vale o tempo na tela
+  concluir(emCursoLateral, false)
   const item = montarAnuncio(ads[iLateral++ % ads.length], `l${iLateral}`)
   lateralAtual.value = item
+  emCursoLateral = comecar(item)
   if (!item) { timerLateral = window.setTimeout(avancarLateral, 5000); return }
-  if (item.campanhaId) registrarExibicao(item.campanhaId, item.pecaId)
   timerLateral = window.setTimeout(avancarLateral, Math.max(8, item.duracao) * 1000)
 }
 
@@ -405,22 +432,24 @@ watch(
 const chaveExib = () => `publicar.exib.${codigo.value}`
 const hojeBR = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' })
 
-// fila local: "campanha|dia" → { total, pecas: { peca_id: n } } (versões antigas guardavam só o número)
-interface Contagem { total: number; pecas: Record<string, number> }
+// fila local: "campanha|dia" → { total, pecas: { peca_id: n }, horas: { 0-23: n } } (versões antigas guardavam só o número)
+interface Contagem { total: number; pecas: Record<string, number>; horas: Record<string, number> }
 function lerFila(): Record<string, Contagem> {
   let bruto: Record<string, number | Contagem> = {}
   try { bruto = JSON.parse(localStorage.getItem(chaveExib()) || '{}') } catch { /* fila corrompida: recomeça */ }
   const out: Record<string, Contagem> = {}
-  for (const [k, v] of Object.entries(bruto)) out[k] = typeof v === 'number' ? { total: v, pecas: {} } : { total: Number(v.total) || 0, pecas: v.pecas || {} }
+  for (const [k, v] of Object.entries(bruto)) out[k] = typeof v === 'number' ? { total: v, pecas: {}, horas: {} } : { total: Number(v.total) || 0, pecas: v.pecas || {}, horas: v.horas || {} }
   return out
 }
 
 function registrarExibicao(campanhaId: number, pecaId?: number) {
   const fila = lerFila()
   const k = `${campanhaId}|${hojeBR()}`
-  const c = (fila[k] ||= { total: 0, pecas: {} })
+  const c = (fila[k] ||= { total: 0, pecas: {}, horas: {} })
   c.total++
   if (pecaId) c.pecas[pecaId] = (c.pecas[pecaId] || 0) + 1
+  const hora = Math.floor(momentoSP().minuto / 60)
+  c.horas[hora] = (c.horas[hora] || 0) + 1
   localStorage.setItem(chaveExib(), JSON.stringify(fila))
 }
 
@@ -430,7 +459,7 @@ async function enviarExibicoes() {
     const fila = lerFila()
     const itens = Object.entries(fila).slice(0, 150).map(([k, c]) => {
       const [cid, dia] = k.split('|')
-      return { campanha_id: Number(cid), dia, total: c.total, pecas: c.pecas }
+      return { campanha_id: Number(cid), dia, total: c.total, pecas: c.pecas, horas: c.horas }
     })
     if (!itens.length) return
     try {
@@ -449,6 +478,10 @@ async function enviarExibicoes() {
       for (const [pid, n] of Object.entries(i.pecas)) {
         c.pecas[pid] = (c.pecas[pid] || 0) - n
         if (c.pecas[pid] <= 0) delete c.pecas[pid]
+      }
+      for (const [h, n] of Object.entries(i.horas)) {
+        c.horas[h] = (c.horas[h] || 0) - n
+        if (c.horas[h] <= 0) delete c.horas[h]
       }
       if (c.total <= 0) delete agora[k]
     }
@@ -534,7 +567,10 @@ function embedYoutube(url?: string) {
 
 /* ------------------------------------------------------------ ciclo de vida */
 const intervalos: number[] = []
-const aoOcultar = () => document.visibilityState === 'hidden' && enviarExibicoes()
+const aoOcultar = () => {
+  marcarOculto()
+  if (document.visibilityState === 'hidden') enviarExibicoes()
+}
 
 onMounted(async () => {
   document.title = 'Publicar · Tela'

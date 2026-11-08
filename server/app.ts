@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { conferirSenha, emitirToken, exigirAdmin, exigirLogin, hashSenha } from './auth'
 import { cteAudiencia, investimentoNoPeriodo, metricas, padroesAudiencia, SQL_ALCANCE, SQL_IMPACTOS } from './audiencia'
 import { crud } from './crud'
+import { novoToken, relatorioCampanha } from './relatorio'
 import { carregarGrade, cicloDoTenant, ocupacao, rodaNaTela, segundosNoCiclo, verificarCampanha } from './grade'
 import { enviarMidia, servirMidia } from './media'
 import { player, redirecionarQr } from './player'
@@ -60,6 +61,32 @@ app.post('/auth/login', async (c) => {
   if (!u || !(await conferirSenha(String(senha || ''), u.senha_hash))) return c.json({ erro: 'E-mail ou senha incorretos' }, 401)
   const token = await emitirToken(c.env, { sub: u.id, tid: u.tenant_id, papel: u.papel, nome: u.nome })
   return c.json({ token, usuario: { nome: u.nome, email: u.email, papel: u.papel } })
+})
+
+// Relatório público da campanha pelo link (sem login). Período: início da campanha (até 90 dias atrás) até hoje.
+app.get('/publico/campanha/:token', async (c) => {
+  const token = c.req.param('token')
+  if (!/^[A-Za-z0-9_-]{20,64}$/.test(token)) return c.json({ erro: 'Link inválido' }, 404)
+  const cp = await c.env.DB.prepare(
+    `SELECT cp.id, cp.tenant_id, cp.nome, cp.status, cp.inicio, cp.fim, cl.nome AS cliente, t.nome AS empresa
+       FROM campanhas cp JOIN tenants t ON t.id = cp.tenant_id LEFT JOIN clientes cl ON cl.id = cp.cliente_id
+      WHERE cp.token_publico = ?`,
+  )
+    .bind(token)
+    .first<{ id: number; tenant_id: string; nome: string; status: string; inicio: string | null; fim: string | null; cliente: string | null; empresa: string }>()
+  if (!cp) return c.json({ erro: 'Link expirado ou revogado. Peça um novo link à empresa.' }, 404)
+  const limite = hoje(new Date(Date.now() - 89 * 86400000))
+  const ate = cp.fim && cp.fim < hoje() ? cp.fim : hoje()
+  const de = cp.inicio && cp.inicio > limite ? cp.inicio : limite
+  const r = await relatorioCampanha(c.env.DB, cp.tenant_id, cp.id, de, ate)
+  c.header('Cache-Control', 'no-store')
+  return c.json({
+    campanha: { nome: cp.nome, status: cp.status, inicio: cp.inicio, fim: cp.fim, cliente: cp.cliente, empresa: cp.empresa },
+    gerado_em: new Date().toISOString(),
+    ...r,
+    // valores financeiros ficam só no painel
+    resumo: r ? { ...r.resumo, investimento: undefined, cpm: undefined } : null,
+  })
 })
 
 app.route('/player', player)
@@ -159,7 +186,7 @@ app.get('/relatorios', async (c) => {
   const cte = cteAudiencia(await padroesAudiencia(c.env.DB, tid), tid)
   const { results } = await c.env.DB.prepare(
     `${cte.sql}
-     SELECT cp.id, cp.nome, cl.nome AS cliente, cp.status, cp.valor, cp.inicio, cp.fim,
+     SELECT cp.id, cp.nome, cl.nome AS cliente, cp.status, cp.valor, cp.inicio, cp.fim, cp.token_publico,
             COALESCE(SUM(e.total), 0) AS exibicoes, COALESCE(SUM(e.qr), 0) AS qr,
             COUNT(DISTINCT e.tela_id) AS telas, COUNT(DISTINCT e.dia) AS dias,
             ${SQL_IMPACTOS} AS impactos, ${SQL_ALCANCE} AS alcance
@@ -178,50 +205,28 @@ app.get('/relatorios', async (c) => {
 
 app.get('/relatorios/campanha/:id', async (c) => {
   const tid = c.get('sessao').tid
-  const id = Number(c.req.param('id'))
   const de = c.req.query('de') || hoje(new Date(Date.now() - 29 * 86400000))
   const ate = c.req.query('ate') || hoje()
-  const db = c.env.DB
-  const padroes = await padroesAudiencia(db, tid)
-  const cte = cteAudiencia(padroes, tid)
-  const [porDia, porTela, linhasPecas, pecas, camp] = await db.batch([
-    db.prepare(
-      `${cte.sql} SELECT e.dia, SUM(e.total) AS total, SUM(e.qr) AS qr, ${SQL_IMPACTOS} AS impactos, ${SQL_ALCANCE} AS alcance
-         FROM exibicoes e LEFT JOIN aud a ON a.id = e.tela_id
-        WHERE e.tenant_id = ? AND e.campanha_id = ? AND e.dia BETWEEN ? AND ? GROUP BY e.dia ORDER BY e.dia`,
-    ).bind(...cte.binds, tid, id, de, ate),
-    db.prepare(
-      `${cte.sql} SELECT t.id, t.nome, t.tipo, t.bairro, SUM(e.total) AS total, SUM(e.qr) AS qr, ${SQL_IMPACTOS} AS impactos, ${SQL_ALCANCE} AS alcance
-         FROM exibicoes e JOIN telas t ON t.id = e.tela_id LEFT JOIN aud a ON a.id = e.tela_id
-        WHERE e.tenant_id = ? AND e.campanha_id = ? AND e.dia BETWEEN ? AND ? GROUP BY t.id ORDER BY impactos DESC`,
-    ).bind(...cte.binds, tid, id, de, ate),
-    db.prepare('SELECT pecas FROM exibicoes WHERE tenant_id = ? AND campanha_id = ? AND dia BETWEEN ? AND ?').bind(tid, id, de, ate),
-    db.prepare('SELECT id, nome, midia_tipo, midia_url, status FROM pecas WHERE tenant_id = ? AND campanha_id = ? ORDER BY ordem, id').bind(tid, id),
-    db.prepare('SELECT valor, inicio, fim FROM campanhas WHERE id = ? AND tenant_id = ?').bind(id, tid),
-  ])
-  // soma a contagem por peça guardada em JSON em cada linha agregada
-  const somaPecas: Record<string, number> = {}
-  for (const l of linhasPecas.results as { pecas: string }[]) {
-    try {
-      for (const [pid, n] of Object.entries(JSON.parse(l.pecas || '{}') as Record<string, number>)) somaPecas[pid] = (somaPecas[pid] || 0) + Number(n)
-    } catch { /* linha antiga sem peças */ }
-  }
-  const porPeca = (pecas.results as { id: number; nome: string | null; midia_tipo: string; midia_url: string; status: string }[]).map((p) => ({
-    ...p,
-    total: somaPecas[String(p.id)] || 0,
-  }))
-  const dias = porDia.results as { total: number; qr: number; impactos: number; alcance: number }[]
-  const soma = (k: 'total' | 'qr' | 'impactos' | 'alcance') => dias.reduce((s, d) => s + Number(d[k] || 0), 0)
-  const cp = (camp.results[0] || {}) as { valor: number; inicio: string | null; fim: string | null }
-  return c.json({
-    de,
-    ate,
-    resumo: { exibicoes: soma('total'), qr: soma('qr'), ...metricas({ exibicoes: soma('total'), impactos: soma('impactos'), alcance: soma('alcance') }, investimentoNoPeriodo(cp.valor, cp.inicio, cp.fim, de, ate)) },
-    por_dia: dias,
-    por_tela: porTela.results,
-    por_peca: porPeca,
-    metodologia: padroes,
-  })
+  const r = await relatorioCampanha(c.env.DB, tid, Number(c.req.param('id')), de, ate)
+  return r ? c.json(r) : c.json({ erro: 'Campanha não encontrada' }, 404)
+})
+
+// Link público do relatório (anunciante acompanha sem login). Gera se ainda não existir.
+app.post('/campanhas/:id/link', async (c) => {
+  const tid = c.get('sessao').tid
+  const id = Number(c.req.param('id'))
+  const atual = await c.env.DB.prepare('SELECT token_publico FROM campanhas WHERE id = ? AND tenant_id = ?').bind(id, tid).first<{ token_publico: string | null }>()
+  if (!atual) return c.json({ erro: 'Campanha não encontrada' }, 404)
+  if (atual.token_publico) return c.json({ token: atual.token_publico })
+  const token = novoToken()
+  await c.env.DB.prepare('UPDATE campanhas SET token_publico = ? WHERE id = ? AND tenant_id = ?').bind(token, id, tid).run()
+  return c.json({ token })
+})
+
+// Revoga o link (o anterior deixa de funcionar).
+app.delete('/campanhas/:id/link', async (c) => {
+  await c.env.DB.prepare('UPDATE campanhas SET token_publico = NULL WHERE id = ? AND tenant_id = ?').bind(Number(c.req.param('id')), c.get('sessao').tid).run()
+  return c.json({ ok: true })
 })
 
 app.get('/financeiro', async (c) => {

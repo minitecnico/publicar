@@ -22,7 +22,7 @@
 import { computed } from 'vue'
 import { hoje, numero } from '../format'
 
-const props = defineProps<{ serie: { dia: string; total: number }[]; numDias?: number; titulo?: string }>()
+const props = defineProps<{ serie: { dia: string; total: number }[]; numDias?: number; titulo?: string; ate?: string }>()
 const L = 640
 const A = 200
 const base = A - 26
@@ -33,7 +33,9 @@ const dias = computed(() => {
   const n = props.numDias || 7
   const mapa = Object.fromEntries(props.serie.map((s) => [s.dia, Number(s.total)]))
   return Array.from({ length: n }, (_, i) => {
-    const dia = new Date(Date.now() - (n - 1 - i) * 86400000).toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' })
+    // termina em "ate" (campanha já encerrada) ou hoje
+    const fim = props.ate ? Date.parse(`${props.ate}T12:00:00-03:00`) : Date.now()
+    const dia = new Date(fim - (n - 1 - i) * 86400000).toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' })
     return { dia, total: mapa[dia] || 0 }
   })
 })

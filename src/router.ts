@@ -21,6 +21,7 @@ export const router = createRouter({
     { path: '/configurar', component: () => import('./views/Setup.vue'), meta: { publica: true } },
     { path: '/tela', component: () => import('./views/Player.vue'), meta: { publica: true } },
     { path: '/tela/:codigo', component: () => import('./views/Player.vue'), meta: { publica: true } },
+    { path: '/relatorio/:token', component: () => import('./views/RelatorioPublico.vue'), meta: { publica: true } },
     {
       path: '/',
       component: () => import('./components/AppLayout.vue'),

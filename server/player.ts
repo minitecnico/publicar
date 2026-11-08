@@ -156,11 +156,12 @@ player.post('/:codigo/ping', async (c) => {
 })
 
 // Prova de exibição em lote:
-//   itens: [{ campanha_id, dia, total, pecas: { "<peca_id>": n } }]   (até MAX_ITENS por envio)
+//   itens: [{ campanha_id, dia, total, pecas: { "<peca_id>": n }, horas: { "<0-23>": n } }]   (até MAX_ITENS por envio)
+// O player só conta peça exibida por completo (vídeo até o fim) e com a tela ativa.
 // Limites do D1 grátis: 50 consultas por requisição e 100 parâmetros por consulta, por isso
 // as gravações vão em INSERTs de várias linhas. O player manda em partes e só apaga o que foi aceito.
 export const MAX_ITENS = 150
-const LINHAS_EXIB = 23 // 4 parâmetros por linha + 3 fixos ≤ 100
+const LINHAS_EXIB = 19 // 5 parâmetros por linha + 3 fixos ≤ 100
 
 const partes = <T,>(l: T[], n: number) => Array.from({ length: Math.ceil(l.length / n) }, (_, i) => l.slice(i * n, i * n + n))
 const DIA = /^\d{4}-\d{2}-\d{2}$/
@@ -169,7 +170,7 @@ player.post('/:codigo/exibicoes', async (c) => {
   const tela = await buscarTela(c.env.DB, c.req.param('codigo'))
   if (!tela) return c.json({ erro: 'Tela não encontrada' }, 404)
   const corpo = await c.req.json<{
-    itens?: { campanha_id: number; dia: string; total: number; pecas?: Record<string, number> }[]
+    itens?: { campanha_id: number; dia: string; total: number; pecas?: Record<string, number>; horas?: Record<string, number> }[]
   }>()
   const validos = (corpo.itens || [])
     .filter((i) => Number.isInteger(i.campanha_id) && DIA.test(i.dia) && i.total > 0 && i.total < 100000)
@@ -178,30 +179,38 @@ player.post('/:codigo/exibicoes', async (c) => {
   const stmts: D1PreparedStatement[] = []
 
   if (validos.length) {
-    // soma as peças ao que já está gravado
+    // soma peças e horas ao que já está gravado
     const dias = [...new Set(validos.map((i) => i.dia))].slice(0, 90)
     const { results: atuais } = await db
-      .prepare(`SELECT campanha_id, dia, pecas FROM exibicoes WHERE tela_id = ? AND dia IN (${dias.map(() => '?').join(',')})`)
+      .prepare(`SELECT campanha_id, dia, pecas, horas FROM exibicoes WHERE tela_id = ? AND dia IN (${dias.map(() => '?').join(',')})`)
       .bind(tela.id, ...dias)
-      .all<{ campanha_id: number; dia: string; pecas: string }>()
-    const gravadas = new Map(atuais.map((a) => [`${a.campanha_id}|${a.dia}`, a.pecas]))
+      .all<{ campanha_id: number; dia: string; pecas: string; horas: string }>()
+    const gravadas = new Map(atuais.map((a) => [`${a.campanha_id}|${a.dia}`, a]))
+    const somar = (base: string | undefined, novos: Record<string, number> | undefined, chaveOk: (k: string) => boolean) => {
+      let m: Record<string, number> = {}
+      try { m = JSON.parse(base || '{}') } catch { /* recomeça */ }
+      for (const [k, n] of Object.entries(novos || {})) if (chaveOk(k) && Number(n) > 0) m[k] = (Number(m[k]) || 0) + Math.round(Number(n))
+      return JSON.stringify(m)
+    }
     const linhas = validos.map((i) => {
-      let pecas: Record<string, number> = {}
-      try { pecas = JSON.parse(gravadas.get(`${i.campanha_id}|${i.dia}`) || '{}') } catch { /* recomeça */ }
-      for (const [pid, n] of Object.entries(i.pecas || {})) {
-        if (/^\d+$/.test(pid) && Number(n) > 0) pecas[pid] = (Number(pecas[pid]) || 0) + Math.round(Number(n))
-      }
-      return [i.campanha_id, i.dia, Math.round(i.total), JSON.stringify(pecas)]
+      const g = gravadas.get(`${i.campanha_id}|${i.dia}`)
+      return [
+        i.campanha_id,
+        i.dia,
+        Math.round(i.total),
+        somar(g?.pecas, i.pecas, (k) => /^\d+$/.test(k)),
+        somar(g?.horas, i.horas, (k) => /^\d{1,2}$/.test(k) && Number(k) < 24),
+      ]
     })
     for (const lote of partes(linhas, LINHAS_EXIB)) {
       stmts.push(
         db.prepare(
-          `INSERT INTO exibicoes (tenant_id, campanha_id, tela_id, dia, total, pecas)
-           SELECT ?, cp.id, ?, v.column2, v.column3, v.column4
-             FROM (VALUES ${lote.map(() => '(?, ?, ?, ?)').join(', ')}) AS v
+          `INSERT INTO exibicoes (tenant_id, campanha_id, tela_id, dia, total, pecas, horas)
+           SELECT ?, cp.id, ?, v.column2, v.column3, v.column4, v.column5
+             FROM (VALUES ${lote.map(() => '(?, ?, ?, ?, ?)').join(', ')}) AS v
              JOIN campanhas cp ON cp.id = v.column1 AND cp.tenant_id = ?
             WHERE true
-           ON CONFLICT (campanha_id, tela_id, dia) DO UPDATE SET total = total + excluded.total, pecas = excluded.pecas`,
+           ON CONFLICT (campanha_id, tela_id, dia) DO UPDATE SET total = total + excluded.total, pecas = excluded.pecas, horas = excluded.horas`,
         ).bind(tela.tenant_id, tela.id, ...lote.flat(), tela.tenant_id),
       )
     }
