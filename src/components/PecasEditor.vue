@@ -20,8 +20,8 @@
     <div v-if="itens.length" class="lista">
       <div v-for="(p, i) in itens" :key="p._k" class="peca cartao" :class="'st-' + p.status">
         <div class="thumb">
-          <img v-if="p.midia_tipo === 'imagem'" :src="p.midia_url" alt="" @load="medir(p, $event)" />
-          <video v-else-if="p.midia_tipo === 'video'" :src="p.midia_url" muted preload="metadata" @loadedmetadata="medirVideo(p, $event)" />
+          <img v-if="p.midia_tipo === 'imagem'" :src="p.midia_url" alt="" :class="{ inteira: p.ajuste === 'inteira' }" @load="medir(p, $event)" />
+          <video v-else-if="p.midia_tipo === 'video'" :src="p.midia_url" muted preload="metadata" :class="{ inteira: p.ajuste === 'inteira' }" @loadedmetadata="medirVideo(p, $event)" />
           <img v-else-if="idYoutube(p.midia_url)" :src="`https://i.ytimg.com/vi/${idYoutube(p.midia_url)}/mqdefault.jpg`" alt="" />
           <span class="tipo">{{ p.midia_tipo === 'youtube' ? 'YouTube' : p.midia_tipo === 'video' ? `Vídeo · ${p.duracao || '?'}s` : 'Imagem' }}</span>
           <span class="ordem">{{ i + 1 }}</span>
@@ -41,6 +41,12 @@
           <div class="metas">
             <label v-if="p.midia_tipo !== 'imagem'" class="mini-campo">Duração (s)
               <input v-model.number="p.duracao" type="number" min="1" @input="emitir" />
+            </label>
+            <label v-if="p.midia_tipo !== 'youtube'" class="mini-campo">Na tela
+              <select v-model="p.ajuste" @change="emitir">
+                <option value="preencher">Preencher a tela</option>
+                <option value="inteira">Mostrar inteira</option>
+              </select>
             </label>
             <label v-if="rotacao === 'peso'" class="mini-campo">Peso
               <input v-model.number="p.peso" type="number" min="1" max="10" @input="emitir" />
@@ -110,6 +116,7 @@ interface Peca {
   inicio?: string | null
   fim?: string | null
   status: string
+  ajuste?: string
   _k?: string
 }
 
@@ -155,8 +162,13 @@ function alertas(p: Peca) {
     out.push({ txt: `Vídeo de ${p.duracao}s não cabe no espaço de ${espacoS.value}s. Edite o vídeo ou aumente a duração do espaço.`, grave: true })
   const m = medidas[p.midia_url]
   if (m && m.w && m.h) {
-    if (m.h > m.w) out.push({ txt: `Peça em retrato (${m.w}×${m.h}): as telas são paisagem, vai aparecer com faixas pretas nas laterais.` })
-    else if (Math.abs(m.w / m.h - 16 / 10) > 0.12 && Math.abs(m.w / m.h - 16 / 9) > 0.12) out.push({ txt: `Proporção fora do padrão (${m.w}×${m.h}). Use 16:9 ou 16:10 para ocupar a tela inteira.` })
+    const cortaMuito = p.ajuste !== 'inteira'
+    if (m.h > m.w)
+      out.push({ txt: cortaMuito
+        ? `Peça em retrato (${m.w}×${m.h}) numa tela paisagem: preenchendo a tela, só a faixa do meio aparece. Prefira 1920×1080 ou use "Mostrar inteira".`
+        : `Peça em retrato (${m.w}×${m.h}): aparece inteira, com o fundo desfocado nas laterais.` })
+    else if (Math.abs(m.w / m.h - 16 / 10) > 0.12 && Math.abs(m.w / m.h - 16 / 9) > 0.12)
+      out.push({ txt: `Proporção fora do padrão (${m.w}×${m.h}): ${cortaMuito ? 'as bordas serão cortadas para preencher a tela' : 'vai sobrar fundo desfocado'}. Ideal: 16:9 ou 16:10.` })
     if (m.w < 960) out.push({ txt: `Resolução baixa (${m.w}×${m.h}): pode ficar borrada. Mínimo recomendado: 1280×720.` })
   }
   return out
@@ -190,7 +202,7 @@ async function enviarArquivos(e: Event) {
       const video = arq.type.startsWith('video')
       const duracao = video ? await duracaoLocal(arq) : null
       const r = await api.upload(arq)
-      itens.value.push({ _k: chave(), nome: nomeArquivo(arq.name), midia_tipo: video ? 'video' : 'imagem', midia_url: r.url, duracao, peso: 1, status: 'aguardando' })
+      itens.value.push({ _k: chave(), nome: nomeArquivo(arq.name), midia_tipo: video ? 'video' : 'imagem', midia_url: r.url, duracao, peso: 1, ajuste: 'preencher', status: 'aguardando' })
       emitir()
       ok++
     } catch (err) {
@@ -254,7 +266,8 @@ function aprovarTodas() {
 .peca.st-reprovada { opacity: 0.6; }
 .peca.st-aguardando { border-color: #f3d3a6; background: #fffaf2; }
 .thumb { position: relative; width: 168px; aspect-ratio: 16 / 10; background: #111; border-radius: 6px; overflow: hidden; }
-.thumb img, .thumb video { width: 100%; height: 100%; object-fit: contain; }
+.thumb img, .thumb video { width: 100%; height: 100%; object-fit: cover; }
+.thumb img.inteira, .thumb video.inteira { object-fit: contain; }
 .thumb .tipo { position: absolute; left: 6px; bottom: 6px; background: rgba(0, 0, 0, 0.7); color: #fff; font-size: 0.7rem; padding: 2px 7px; border-radius: 999px; }
 .thumb .ordem { position: absolute; left: 6px; top: 6px; background: var(--laranja); color: var(--grafite); font-weight: 800; font-size: 0.72rem; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; }
 .corpo { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
@@ -264,6 +277,7 @@ function aprovarTodas() {
 .metas { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
 .mini-campo { display: flex; align-items: center; gap: 6px; font-size: 0.82rem; color: var(--texto-2); }
 .mini-campo input { width: 70px; padding: 4px 6px; }
+.mini-campo select { width: auto; padding: 4px 6px; }
 .alerta { margin: 0; font-size: 0.8rem; color: var(--laranja-escuro); }
 .alerta.grave { color: var(--vermelho); font-weight: 600; }
 details summary { cursor: pointer; font-size: 0.82rem; color: var(--texto-2); }

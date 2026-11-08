@@ -18,6 +18,8 @@ export interface Peca {
   fim?: string | null
   status?: string
   ordem?: number
+  /** preencher (ocupa a tela toda, corta as bordas) | inteira (sem cortar) */
+  ajuste?: string
 }
 
 const TIPOS = ['imagem', 'video', 'youtube']
@@ -40,6 +42,7 @@ export function limparPecas(v: unknown): Peca[] {
       inicio: p.inicio || null,
       fim: p.fim || null,
       status: STATUS.includes(p.status) ? p.status : 'aguardando',
+      ajuste: p.ajuste === 'inteira' ? 'inteira' : 'preencher',
       ordem: i,
     }))
 }
@@ -61,17 +64,17 @@ export async function salvarPecas(db: D1Database, tid: string, campanhaId: numbe
   const stmts: D1PreparedStatement[] = []
   for (const id of existentes) if (!manter.has(id)) stmts.push(db.prepare('DELETE FROM pecas WHERE id = ? AND tenant_id = ?').bind(id, tid))
   for (const p of pecas) {
-    const v = [p.nome, p.midia_tipo, p.midia_url, p.duracao, p.texto, p.link_qr, p.peso, p.inicio, p.fim, p.status, p.ordem]
+    const v = [p.nome, p.midia_tipo, p.midia_url, p.duracao, p.texto, p.link_qr, p.peso, p.inicio, p.fim, p.status, p.ajuste || 'preencher', p.ordem]
     if (p.id && existentes.has(p.id)) {
       stmts.push(
         db.prepare(
-          'UPDATE pecas SET nome = ?, midia_tipo = ?, midia_url = ?, duracao = ?, texto = ?, link_qr = ?, peso = ?, inicio = ?, fim = ?, status = ?, ordem = ? WHERE id = ? AND tenant_id = ?',
+          'UPDATE pecas SET nome = ?, midia_tipo = ?, midia_url = ?, duracao = ?, texto = ?, link_qr = ?, peso = ?, inicio = ?, fim = ?, status = ?, ajuste = ?, ordem = ? WHERE id = ? AND tenant_id = ?',
         ).bind(...v, p.id, tid),
       )
     } else {
       stmts.push(
         db.prepare(
-          'INSERT INTO pecas (nome, midia_tipo, midia_url, duracao, texto, link_qr, peso, inicio, fim, status, ordem, campanha_id, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          'INSERT INTO pecas (nome, midia_tipo, midia_url, duracao, texto, link_qr, peso, inicio, fim, status, ajuste, ordem, campanha_id, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         ).bind(...v, campanhaId, tid),
       )
     }

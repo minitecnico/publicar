@@ -77,7 +77,7 @@ player.get('/:codigo', async (c) => {
   const pecasPor = new Map<number, Record<string, unknown>[]>()
   if (daTela.length) {
     const { results: pecas } = await c.env.DB.prepare(
-      `SELECT id, campanha_id, nome, midia_tipo, midia_url, duracao, texto, link_qr, peso
+      `SELECT id, campanha_id, nome, midia_tipo, midia_url, duracao, texto, link_qr, peso, ajuste
          FROM pecas
         WHERE tenant_id = ? AND status = 'aprovada'
           AND (inicio IS NULL OR inicio = '' OR inicio <= ?)
@@ -111,6 +111,7 @@ player.get('/:codigo', async (c) => {
         duracao: p.duracao,
         texto: p.texto,
         peso: cp.rotacao === 'peso' ? p.peso : 1,
+        ajuste: p.ajuste === 'inteira' ? 'inteira' : 'preencher',
         qr_url: p.link_qr || cp.link_qr ? `${origem}/api/r/${cp.id}/${tela.id}/${p.id}` : null,
       })),
       // dia e horário são conferidos no próprio player (ele guarda a programação e funciona offline)

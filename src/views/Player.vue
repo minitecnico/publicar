@@ -28,11 +28,12 @@
               <!-- fundo: a própria peça desfocada preenche a tela (sem faixas pretas em peça fora do formato) -->
               <div class="fundo-peca" :style="fundoPeca(atual)" />
 
-              <img v-if="atual.tipo === 'imagem'" :src="fonte(atual.url)" alt="" class="midia zoom" />
+              <img v-if="atual.tipo === 'imagem'" :src="fonte(atual.url)" alt="" class="midia zoom" :class="{ inteira: atual.inteira }" />
               <video
                 v-else-if="atual.tipo === 'video'"
                 :src="fonte(atual.url)"
                 class="midia"
+                :class="{ inteira: atual.inteira }"
                 autoplay
                 playsinline
                 :muted="mudo"
@@ -128,7 +129,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 /* ------------------------------------------------------------ tipos */
 interface Janela { ini: string; fim: string }
-interface Peca { id: number; tipo: string; url: string; duracao: number | null; texto: string | null; peso: number; qr_url: string | null }
+interface Peca { id: number; tipo: string; url: string; duracao: number | null; texto: string | null; peso: number; qr_url: string | null; ajuste?: string }
 /** duracao = espaço comprado; as peças giram dentro dele */
 interface Campanha { id: number; nome: string; duracao: number; prioridade: number; rotacao?: string; pecas?: Peca[]; dias_semana?: number[]; horarios?: Janela[] }
 interface Conteudo { tipo: string; url?: string; duracao?: number; titulo?: string; texto?: string }
@@ -142,7 +143,7 @@ interface Dados {
   /** minutos entre envios da prova de exibição (o servidor ajusta ao tamanho da rede) */
   envio_min?: number
 }
-interface Item { chave: string; tipo: string; url?: string; duracao: number; texto?: string | null; titulo?: string; qr?: string; campanhaId?: number; pecaId?: number }
+interface Item { chave: string; tipo: string; url?: string; duracao: number; texto?: string | null; titulo?: string; qr?: string; campanhaId?: number; pecaId?: number; inteira?: boolean }
 
 const VERSAO = '0.4.0'
 const route = useRoute()
@@ -330,6 +331,7 @@ function montarAnuncio(espaco: Item, chave: string): Item | null {
     qr: p.qr_url ? qrs[p.qr_url] : undefined,
     campanhaId: c.id,
     pecaId: p.id,
+    inteira: p.ajuste === 'inteira',
   }
 }
 
@@ -569,8 +571,11 @@ onBeforeUnmount(() => {
 /* ---------- peça */
 .item { position: absolute; inset: 0; display: grid; place-items: center; overflow: hidden; }
 .fundo-peca { position: absolute; inset: -40px; background-size: cover; background-position: center; filter: blur(38px) saturate(1.35) brightness(0.55); transform: scale(1.1); }
-.midia { position: relative; width: 100%; height: 100%; object-fit: contain; border: 0; z-index: 1; filter: drop-shadow(0 12px 40px rgba(0, 0, 0, 0.45)); }
-iframe.midia { filter: none; }
+.midia { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center; border: 0; z-index: 1; }
+/* "Ajustar inteira": peça toda visível, sobra preenchida pelo fundo desfocado */
+.midia.inteira { object-fit: contain; filter: drop-shadow(0 12px 40px rgba(0, 0, 0, 0.45)); }
+/* coluna lateral é estreita: a peça aparece inteira para não cortar o anúncio */
+.coluna .midia { object-fit: contain; filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.45)); }
 .zoom { animation: zoom var(--dur, 15s) ease-out both; }
 @keyframes zoom { from { transform: scale(1); } to { transform: scale(1.045); } }
 
