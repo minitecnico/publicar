@@ -119,7 +119,7 @@ app.get('/dashboard', async (c) => {
     db.prepare("SELECT COUNT(*) AS n FROM clientes WHERE tenant_id = ? AND status = 'ativo'").bind(tid),
     db.prepare("SELECT COUNT(*) AS n FROM campanhas WHERE tenant_id = ? AND status = 'ativa'").bind(tid),
     db.prepare(
-      "SELECT COUNT(*) AS n, SUM(CASE WHEN ultimo_ping >= datetime('now', '-10 minutes') THEN 1 ELSE 0 END) AS online FROM telas WHERE tenant_id = ? AND status = 'ativa'",
+      "SELECT COUNT(*) AS n, SUM(CASE WHEN ultimo_ping >= datetime('now', '-25 minutes') THEN 1 ELSE 0 END) AS online FROM telas WHERE tenant_id = ? AND status = 'ativa'",
     ).bind(tid),
     db.prepare("SELECT COUNT(*) AS n FROM motoristas WHERE tenant_id = ? AND status = 'ativo'").bind(tid),
     db.prepare(

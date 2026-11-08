@@ -53,7 +53,7 @@
             <RouterLink to="/campanhas">Revisar</RouterLink>
           </li>
           <li v-if="offline">
-            <span class="selo vermelho">{{ offline }}</span> tela(s) sem sinal há mais de 10 min
+            <span class="selo vermelho">{{ offline }}</span> tela(s) sem sinal há mais de 25 min
             <RouterLink to="/telas">Ver telas</RouterLink>
           </li>
           <li v-if="d.vencido > 0">

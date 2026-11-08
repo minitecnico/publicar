@@ -41,9 +41,23 @@ GitHub (push na main) ──► GitHub Actions ──► Cloudflare Pages "publi
 | KV | Mídias das campanhas | 1 GB, 1.000 gravações/dia, 25 MB por arquivo |
 | R2 (opcional) | Mídias grandes | 10 GB — **exige cartão cadastrado** na Cloudflare |
 
-Cada tela faz cerca de 530 requisições por dia (sinal de vida a cada 5 min, programação a cada 10 min, exibições em
-lote a cada 15 min). Assim o plano grátis comporta perto de 180 telas ligadas o dia todo. Acima disso, o Workers Paid
-custa US$ 5/mês. Uma campanha aprovada chega às telas em até 10 minutos (ou na hora, ao recarregar o player).
+Os limites que importam no plano grátis são **100 mil requisições** e **100 mil linhas gravadas no D1** por dia,
+somando todas as telas. Para caber neles:
+
+- A tela busca a programação a cada **15 min**, e essa mesma busca é o **sinal de vida** (1 gravação). São ~96 requisições
+  e ~96 gravações por tela por dia. Tela "online" = deu sinal nos últimos 25 min.
+- A prova de exibição fica acumulada no aparelho e é enviada num **intervalo adaptativo**: o servidor calcula
+  `telas × campanhas × envios/dia ≤ 40 mil gravações` e informa a cada tela (mínimo 30 min, máximo 4 h).
+  Nada se perde: se a tela ficar sem internet, envia tudo quando voltar.
+
+| Rede | Intervalo de envio | Requisições/dia | Gravações/dia |
+| --- | --- | --- | --- |
+| 50 telas, 10 campanhas | 30 min | ~7 mil | ~29 mil |
+| 180 telas, 10 campanhas | 65 min | ~21 mil | ~57 mil |
+| 400 telas, 10 campanhas | 2,4 h | ~42 mil | ~78 mil |
+
+Acima de ~450 telas, o Workers Paid (US$ 5/mês) amplia os limites para milhões. Uma campanha aprovada chega às telas
+em até 15 minutos (ou na hora, ao recarregar o player). O painel "Exibições hoje" pode atrasar até o próximo envio.
 
 ## Colocar no ar (uma vez só)
 

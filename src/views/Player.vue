@@ -115,10 +115,14 @@ interface Dados {
   campanhas: Campanha[]
   /** ciclo de anúncios em segundos: a sobra é preenchida com entretenimento */
   ciclo?: number
+  /** minutos entre buscas da programação (cada busca também é o sinal de vida) */
+  programacao_min?: number
+  /** minutos entre envios da prova de exibição (o servidor ajusta ao tamanho da rede) */
+  envio_min?: number
 }
 interface Item { chave: string; tipo: string; url?: string; duracao: number; texto?: string | null; titulo?: string; qr?: string; campanhaId?: number; pecaId?: number }
 
-const VERSAO = '0.3.0'
+const VERSAO = '0.4.0'
 const route = useRoute()
 const router = useRouter()
 
@@ -155,7 +159,9 @@ try {
 async function carregar() {
   if (!codigo.value) return
   try {
-    const res = await fetch(`/api/player/${codigo.value}`, { cache: 'no-store' })
+    // a busca da programação também é o sinal de vida da tela
+    const q = new URLSearchParams({ v: VERSAO, r: `${screen.width}x${screen.height}` })
+    const res = await fetch(`/api/player/${codigo.value}?${q}`, { cache: 'no-store' })
     const corpo = await res.json()
     if (!res.ok) {
       falha.value = corpo.erro || 'Não foi possível carregar a tela'
@@ -420,17 +426,19 @@ async function enviarExibicoes() {
   } catch { /* tenta no próximo ciclo */ }
 }
 
-async function ping() {
-  try {
-    await fetch(`/api/player/${codigo.value}/ping`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ versao: VERSAO, tela: `${screen.width}x${screen.height}`, campanhas: dados.value?.campanhas.length ?? 0 }),
-    })
-    semRede.value = false
-  } catch {
-    semRede.value = true
+/* Agendamento com intervalo vindo do servidor e um pouco de aleatoriedade,
+   para as telas não baterem todas no mesmo minuto. */
+const timersCiclo: Record<string, number> = {}
+let desmontado = false
+function agendar(nome: string, fn: () => unknown, minutos: () => number) {
+  const proximo = () => {
+    if (desmontado) return
+    const ms = minutos() * 60 * 1000 * (0.9 + Math.random() * 0.2)
+    timersCiclo[nome] = window.setTimeout(async () => {
+      try { await fn() } finally { proximo() }
+    }, ms)
   }
+  proximo()
 }
 
 /* ------------------------------------------------------------ interação, tema, relógio */
@@ -491,22 +499,20 @@ onMounted(async () => {
   await carregar()
   avancar()
   avancarLateral()
-  ping()
   // passados 10 s sem toque (instalação em quiosque), some o aviso e segue tocando sem som
   setTimeout(() => (mostrarInicio.value = false), 10000)
-  intervalos.push(
-    window.setInterval(atualizarRelogio, 15000),
-    // intervalos pensados para caber ~180 telas no limite grátis de 100 mil requisições/dia
-    window.setInterval(carregar, 10 * 60 * 1000),
-    window.setInterval(enviarExibicoes, 15 * 60 * 1000),
-    window.setInterval(ping, 5 * 60 * 1000),
-  )
+  intervalos.push(window.setInterval(atualizarRelogio, 15000))
+  // intervalos definidos pelo servidor para a rede inteira caber no plano grátis (requisições e gravações no D1)
+  agendar('programacao', carregar, () => dados.value?.programacao_min || 15)
+  agendar('exibicoes', enviarExibicoes, () => dados.value?.envio_min || 60)
   document.addEventListener('visibilitychange', aoOcultar)
   window.addEventListener('online', carregar)
 })
 
 onBeforeUnmount(() => {
   intervalos.forEach(clearInterval)
+  desmontado = true
+  Object.values(timersCiclo).forEach(clearTimeout)
   clearTimeout(timer)
   clearTimeout(timerLateral)
   document.removeEventListener('visibilitychange', aoOcultar)

@@ -23,10 +23,10 @@ export function diasAtras(n: number): string {
   return new Date(Date.now() - n * 86400000).toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' })
 }
 
-/** Tela online = deu sinal nos últimos 10 minutos (ultimo_ping vem em UTC do D1). */
+/** Tela online = deu sinal nos últimos 25 minutos (o player dá sinal a cada ~15 min; ultimo_ping vem em UTC do D1). */
 export function online(ultimoPing: unknown): boolean {
   if (!ultimoPing || typeof ultimoPing !== 'string') return false
-  return Date.now() - new Date(ultimoPing.replace(' ', 'T') + 'Z').getTime() < 10 * 60 * 1000
+  return Date.now() - new Date(ultimoPing.replace(' ', 'T') + 'Z').getTime() < 25 * 60 * 1000
 }
 
 export function tempoDesde(ultimoPing: unknown): string {

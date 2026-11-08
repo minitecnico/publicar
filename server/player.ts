@@ -5,6 +5,23 @@ import { hoje, type AppEnv } from './types'
 /** Rotas públicas usadas pelas telas (tablets e TVs). Identificação pelo código da tela. */
 export const player = new Hono<AppEnv>()
 
+/*
+ * Orçamento do plano grátis da Cloudflare (por dia, somando TODAS as telas):
+ *   - 100 mil requisições aos Workers/Functions
+ *   - 100 mil linhas gravadas no D1
+ * Cada tela: busca a programação a cada 15 min (e esse GET também é o sinal de vida: 1 gravação)
+ * e envia a prova de exibição num intervalo adaptativo, calculado para a rede inteira caber no orçamento.
+ */
+export const PROGRAMACAO_MIN = 15
+/** Gravações/dia reservadas para a prova de exibição (o resto fica para sinal de vida e para o painel). */
+const ORCAMENTO_EXIBICOES = 40000
+
+/** Intervalo (min) de envio das exibições: telas × campanhas × envios/dia ≤ orçamento. Entre 30 min e 4 h. */
+export function intervaloExibicoes(telasAtivas: number, campanhasDaTela: number) {
+  const min = Math.ceil((Math.max(1, telasAtivas) * Math.max(1, campanhasDaTela) * 1440) / ORCAMENTO_EXIBICOES)
+  return Math.min(240, Math.max(30, min))
+}
+
 interface Tela {
   id: number
   tenant_id: string
@@ -31,6 +48,13 @@ player.get('/:codigo', async (c) => {
   if (tela.status !== 'ativa') return c.json({ erro: 'Tela desativada no painel.' }, 403)
 
   const dia = hoje()
+  // sinal de vida junto com a busca da programação (economiza uma requisição e metade das gravações)
+  const info = JSON.stringify({ versao: c.req.query('v') || null, tela: c.req.query('r') || null }).slice(0, 500)
+  const [, contagem] = await c.env.DB.batch([
+    c.env.DB.prepare("UPDATE telas SET ultimo_ping = datetime('now'), ultima_info = ? WHERE id = ?").bind(info, tela.id),
+    c.env.DB.prepare("SELECT COUNT(*) AS n FROM telas WHERE status = 'ativa'"),
+  ])
+  const telasAtivas = Number((contagem.results[0] as { n: number } | undefined)?.n) || 1
   const { results } = await c.env.DB.prepare(
     `SELECT id, nome, duracao, link_qr, prioridade, rotacao, telas_alvo, dias_semana, horarios
        FROM campanhas
@@ -114,11 +138,14 @@ player.get('/:codigo', async (c) => {
     },
     campanhas,
     ciclo: await cicloDoTenant(c.env.DB, tela.tenant_id),
+    programacao_min: PROGRAMACAO_MIN,
+    envio_min: intervaloExibicoes(telasAtivas, campanhas.length),
     gerado_em: new Date().toISOString(),
   })
 })
 
-// Batimento cardíaco: a tela avisa que está viva (a cada ~5 min).
+// Sinal de vida avulso. Players atuais mandam o sinal junto com o GET da programação;
+// esta rota fica para players antigos que ainda não recarregaram.
 player.post('/:codigo/ping', async (c) => {
   const corpo = await c.req.json().catch(() => ({}))
   const r = await c.env.DB.prepare("UPDATE telas SET ultimo_ping = datetime('now'), ultima_info = ? WHERE codigo = ?")
