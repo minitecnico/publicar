@@ -24,8 +24,11 @@
         <!-- Palco principal -->
         <div class="palco">
           <Transition name="fade" mode="out-in">
-            <div v-if="atual" :key="atual.chave" class="item">
-              <img v-if="atual.tipo === 'imagem'" :src="fonte(atual.url)" alt="" class="midia" />
+            <div v-if="atual" :key="atual.chave" class="item" :style="{ '--dur': `${atual.duracao}s` }">
+              <!-- fundo: a própria peça desfocada preenche a tela (sem faixas pretas em peça fora do formato) -->
+              <div class="fundo-peca" :style="fundoPeca(atual)" />
+
+              <img v-if="atual.tipo === 'imagem'" :src="fonte(atual.url)" alt="" class="midia zoom" />
               <video
                 v-else-if="atual.tipo === 'video'"
                 :src="fonte(atual.url)"
@@ -48,8 +51,19 @@
                 <p>{{ atual.texto }}</p>
               </div>
 
-              <div v-if="atual.texto && atual.tipo !== 'aviso'" class="chamada">{{ atual.texto }}</div>
-              <div v-if="atual.qr" class="qr"><img :src="atual.qr" alt="QR code" /><span>Aponte a câmera</span></div>
+              <span v-if="atual.campanhaId" class="selo-pub">Publicidade</span>
+
+              <!-- faixa inferior: chamada + QR alinhados -->
+              <div v-if="(atual.texto && atual.tipo !== 'aviso') || atual.qr" class="faixa-info">
+                <div v-if="atual.texto && atual.tipo !== 'aviso'" class="chamada">{{ atual.texto }}</div>
+                <span v-else class="espaco" />
+                <div v-if="atual.qr" class="qr">
+                  <img :src="atual.qr" alt="QR code" />
+                  <span>Aponte a<br />câmera</span>
+                </div>
+              </div>
+
+              <div v-if="mostraProgresso(atual)" class="progresso"><i /></div>
             </div>
             <div v-else key="vazio" class="ocioso">
               <img src="/logo.png" alt="Publicar" class="logo-ocioso" />
@@ -62,11 +76,16 @@
         <!-- Coluna de anúncios (layout lateral) -->
         <aside v-if="layoutLateral" class="coluna">
           <Transition name="fade" mode="out-in">
-            <div v-if="lateralAtual" :key="lateralAtual.chave" class="item">
-              <img v-if="lateralAtual.tipo === 'imagem'" :src="fonte(lateralAtual.url)" alt="" class="midia" />
+            <div v-if="lateralAtual" :key="lateralAtual.chave" class="item" :style="{ '--dur': `${Math.max(8, lateralAtual.duracao)}s` }">
+              <div class="fundo-peca" :style="fundoPeca(lateralAtual)" />
+              <img v-if="lateralAtual.tipo === 'imagem'" :src="fonte(lateralAtual.url)" alt="" class="midia zoom" />
               <video v-else-if="lateralAtual.tipo === 'video'" :src="fonte(lateralAtual.url)" class="midia" autoplay muted playsinline loop />
-              <div v-if="lateralAtual.texto" class="chamada pequena">{{ lateralAtual.texto }}</div>
-              <div v-if="lateralAtual.qr" class="qr pequeno-qr"><img :src="lateralAtual.qr" alt="QR code" /></div>
+              <span class="selo-pub">Publicidade</span>
+              <div v-if="lateralAtual.texto || lateralAtual.qr" class="faixa-info compacta">
+                <div v-if="lateralAtual.texto" class="chamada">{{ lateralAtual.texto }}</div>
+                <div v-if="lateralAtual.qr" class="qr"><img :src="lateralAtual.qr" alt="QR code" /></div>
+              </div>
+              <div class="progresso"><i /></div>
             </div>
           </Transition>
         </aside>
@@ -80,7 +99,10 @@
             <span>{{ recados }}</span><span aria-hidden="true">{{ recados }}</span>
           </div>
         </div>
-        <div class="relogio">{{ relogio }}</div>
+        <div class="relogio">
+          <strong>{{ relogio }}</strong>
+          <span>{{ dataHoje }}</span>
+        </div>
       </footer>
 
       <div v-if="semRede" class="sem-rede" title="Sem conexão: tocando a última programação salva" />
@@ -477,11 +499,25 @@ const recados = computed(() =>
 const duracaoTicker = computed(() => `${Math.max(15, recados.value.length * 0.28)}s`)
 
 const relogio = ref('')
+const dataHoje = ref('')
 function atualizarRelogio() {
   relogio.value = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })
+  dataHoje.value = new Date()
+    .toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' })
+    .replace('.', '')
   const m = momentoSP()
   if (m.minuto !== agora.value.minuto || m.dia !== agora.value.dia) agora.value = m // reavalia as faixas de horário
 }
+
+/** Fundo da peça: imagem/miniatura desfocada; vídeo usa um degradê com as cores da tela. */
+function fundoPeca(item: Item) {
+  if (item.tipo === 'imagem' && item.url) return { backgroundImage: `url("${fonte(item.url)}")` }
+  const yt = item.tipo === 'youtube' ? (item.url || '').match(/(?:youtu\.be\/|v=|embed\/|shorts\/)([\w-]{11})/)?.[1] : null
+  if (yt) return { backgroundImage: `url("https://i.ytimg.com/vi/${yt}/hqdefault.jpg")` }
+  return { backgroundImage: 'radial-gradient(circle at 30% 20%, color-mix(in srgb, var(--cor) 35%, transparent), transparent 60%), radial-gradient(circle at 80% 90%, color-mix(in srgb, var(--cor) 20%, transparent), transparent 55%)', filter: 'none', transform: 'none' }
+}
+/** Barra de progresso só onde a duração é conhecida (anúncios e imagens/avisos). */
+const mostraProgresso = (item: Item) => !!item.campanhaId || item.tipo === 'imagem' || item.tipo === 'aviso'
 
 function embedYoutube(url?: string) {
   const id = (url || '').match(/(?:youtu\.be\/|v=|embed\/|shorts\/)([\w-]{11})/)?.[1]
@@ -524,40 +560,66 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .player { position: fixed; inset: 0; background: var(--fundo-tela); color: #fff; display: flex; flex-direction: column; overflow: hidden; user-select: none; cursor: none; font-family: 'Inter', 'Segoe UI', system-ui, sans-serif; }
-.area { flex: 1; display: flex; min-height: 0; }
-.palco { flex: 1; position: relative; min-width: 0; }
-.area.lateral .palco { flex: 3; }
-.coluna { flex: 1.15; position: relative; border-left: 4px solid var(--cor); background: #000; }
-.item { position: absolute; inset: 0; display: grid; place-items: center; }
-.midia { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; border: 0; background: #000; }
-.chamada { position: absolute; left: 3vw; bottom: 3vh; max-width: 62%; background: var(--cor); color: #1e1e1e; font-weight: 800; font-size: clamp(18px, 3.2vw, 48px); line-height: 1.15; padding: 0.45em 0.7em; border-radius: 0.35em; box-shadow: 0 8px 30px rgba(0,0,0,.35); }
-.chamada.pequena { font-size: clamp(12px, 1.4vw, 22px); left: 6%; right: 6%; max-width: none; bottom: 2vh; }
-.qr { position: absolute; right: 3vw; bottom: 3vh; background: #fff; padding: 10px 10px 6px; border-radius: 12px; display: flex; flex-direction: column; align-items: center; gap: 4px; box-shadow: 0 8px 30px rgba(0,0,0,.35); }
-.qr img { width: clamp(90px, 13vw, 190px); height: auto; display: block; }
-.qr span { color: #1e1e1e; font-size: clamp(10px, 1.1vw, 15px); font-weight: 700; }
-.pequeno-qr { right: 6%; top: 3vh; bottom: auto; padding: 6px; }
-.pequeno-qr img { width: clamp(60px, 7vw, 110px); }
-.aviso { width: 78%; text-align: center; }
-.aviso-titulo { display: inline-block; background: var(--cor); color: #1e1e1e; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; padding: .3em .9em; border-radius: 999px; font-size: clamp(14px, 1.8vw, 26px); }
-.aviso p { font-size: clamp(26px, 5vw, 80px); font-weight: 800; line-height: 1.1; margin: .4em 0 0; }
+.area { flex: 1; display: flex; min-height: 0; gap: 0; }
+.palco { flex: 1; position: relative; min-width: 0; overflow: hidden; background: #000; }
+.area.lateral { gap: clamp(6px, 0.8vw, 12px); padding: clamp(6px, 0.8vw, 12px); background: var(--fundo-tela); }
+.area.lateral .palco { flex: 3; border-radius: 14px; }
+.coluna { flex: 1.15; position: relative; overflow: hidden; background: #000; border-radius: 14px; box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--cor) 70%, transparent); }
 
-.rodape { position: relative; z-index: 2; height: clamp(44px, 8vh, 72px); background: var(--cor); color: #1e1e1e; display: flex; align-items: center; gap: 14px; padding: 0 14px; flex-shrink: 0; }
-.logo-pilula { background: #fff; border-radius: 8px; height: 76%; padding: 3px 10px; display: flex; align-items: center; flex-shrink: 0; }
+/* ---------- peça */
+.item { position: absolute; inset: 0; display: grid; place-items: center; overflow: hidden; }
+.fundo-peca { position: absolute; inset: -40px; background-size: cover; background-position: center; filter: blur(38px) saturate(1.35) brightness(0.55); transform: scale(1.1); }
+.midia { position: relative; width: 100%; height: 100%; object-fit: contain; border: 0; z-index: 1; filter: drop-shadow(0 12px 40px rgba(0, 0, 0, 0.45)); }
+iframe.midia { filter: none; }
+.zoom { animation: zoom var(--dur, 15s) ease-out both; }
+@keyframes zoom { from { transform: scale(1); } to { transform: scale(1.045); } }
+
+.selo-pub { position: absolute; top: clamp(10px, 2vh, 22px); left: clamp(10px, 1.6vw, 26px); z-index: 3; font-size: clamp(9px, 0.95vw, 13px); font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(255, 255, 255, 0.85); background: rgba(0, 0, 0, 0.38); backdrop-filter: blur(6px); padding: 0.35em 0.9em; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.18); }
+
+/* ---------- faixa inferior: chamada + QR */
+.faixa-info { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; display: flex; align-items: flex-end; justify-content: space-between; gap: 2vw; padding: 8vh clamp(14px, 2.4vw, 40px) clamp(14px, 3vh, 34px); background: linear-gradient(to top, rgba(0, 0, 0, 0.78), rgba(0, 0, 0, 0.35) 55%, transparent); }
+.faixa-info .espaco { flex: 1; }
+.chamada { position: relative; max-width: 64%; color: #fff; font-weight: 800; font-size: clamp(20px, 3.4vw, 54px); line-height: 1.08; letter-spacing: -0.01em; padding-left: 0.5em; text-shadow: 0 2px 18px rgba(0, 0, 0, 0.55); animation: subir 0.7s 0.25s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.chamada::before { content: ''; position: absolute; left: 0; top: 0.08em; bottom: 0.08em; width: 0.16em; border-radius: 999px; background: var(--cor); }
+.qr { flex-shrink: 0; display: flex; align-items: center; gap: 12px; background: #fff; color: #1e1e1e; padding: 10px 14px 10px 10px; border-radius: 16px; box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45); border-bottom: 4px solid var(--cor); animation: subir 0.7s 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.qr img { width: clamp(84px, 10.5vw, 168px); height: auto; display: block; border-radius: 6px; }
+.qr span { font-size: clamp(11px, 1.15vw, 17px); font-weight: 800; line-height: 1.15; text-transform: uppercase; letter-spacing: 0.04em; }
+@keyframes subir { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+
+.faixa-info.compacta { flex-direction: column; align-items: stretch; gap: 10px; padding: 6vh 12px 14px; }
+.faixa-info.compacta .chamada { max-width: none; font-size: clamp(13px, 1.5vw, 24px); }
+.faixa-info.compacta .qr { align-self: flex-end; padding: 6px; border-radius: 10px; }
+.faixa-info.compacta .qr img { width: clamp(56px, 6vw, 100px); }
+
+.progresso { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; z-index: 4; background: rgba(255, 255, 255, 0.12); }
+.progresso i { display: block; height: 100%; width: 100%; background: var(--cor); transform-origin: left; animation: progresso var(--dur, 15s) linear both; }
+@keyframes progresso { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+/* ---------- aviso em texto */
+.aviso { position: relative; z-index: 1; width: 78%; text-align: center; }
+.aviso-titulo { display: inline-block; background: var(--cor); color: #1e1e1e; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; padding: .3em .9em; border-radius: 999px; font-size: clamp(14px, 1.8vw, 26px); }
+.aviso p { font-size: clamp(26px, 5vw, 80px); font-weight: 800; line-height: 1.1; margin: .4em 0 0; text-shadow: 0 4px 30px rgba(0, 0, 0, 0.4); }
+
+/* ---------- rodapé */
+.rodape { position: relative; z-index: 2; height: clamp(48px, 8.5vh, 78px); background: #121212; color: #fff; display: flex; align-items: center; gap: clamp(10px, 1.4vw, 20px); padding: 0 clamp(10px, 1.4vw, 20px); flex-shrink: 0; border-top: 3px solid var(--cor); }
+.logo-pilula { background: #fff; border-radius: 10px; height: 72%; padding: 4px 12px; display: flex; align-items: center; flex-shrink: 0; }
 .logo-pilula img { height: 100%; width: auto; }
-.ticker { flex: 1; overflow: hidden; white-space: nowrap; font-weight: 700; font-size: clamp(14px, 2.4vh, 26px); mask-image: linear-gradient(90deg, transparent, #000 4%, #000 96%, transparent); }
+.ticker { flex: 1; overflow: hidden; white-space: nowrap; font-weight: 600; font-size: clamp(14px, 2.5vh, 26px); color: rgba(255, 255, 255, 0.92); mask-image: linear-gradient(90deg, transparent, #000 3%, #000 97%, transparent); }
 .ticker-faixa { display: inline-flex; animation: rolar linear infinite; }
 .ticker-faixa span { white-space: pre; }
 @keyframes rolar { from { transform: translateX(0); } to { transform: translateX(-50%); } }
-.relogio { font-weight: 800; font-size: clamp(18px, 3.4vh, 36px); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.relogio { flex-shrink: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1; background: var(--cor); color: #1e1e1e; border-radius: 10px; height: 76%; padding: 0 clamp(10px, 1.2vw, 18px); }
+.relogio strong { font-weight: 800; font-size: clamp(18px, 3.3vh, 34px); font-variant-numeric: tabular-nums; }
+.relogio span { font-size: clamp(9px, 1.35vh, 13px); font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; margin-top: 2px; opacity: 0.8; }
 
-.ocioso { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; background: #f6f5f2; color: #1e1e1e; gap: 6px; padding: 20px; }
-.logo-ocioso { width: min(42vw, 420px); margin-bottom: 12px; }
-.ocioso p { margin: 0; font-size: clamp(16px, 2.4vw, 28px); font-weight: 650; }
-.ocioso .pequeno { font-size: clamp(12px, 1.4vw, 17px); font-weight: 400; color: #5f5f5a; }
-.trocar { margin-top: 14px; border: 1px solid #ccc; background: #fff; padding: 8px 14px; border-radius: 8px; font: inherit; cursor: pointer; }
+.ocioso { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: #fff; gap: 8px; padding: 20px; background: radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--cor) 22%, var(--fundo-tela)), var(--fundo-tela) 65%); }
+.logo-ocioso { width: min(34vw, 340px); margin-bottom: 18px; background: #fff; padding: clamp(12px, 2vw, 26px); border-radius: 22px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45); }
+.ocioso p { margin: 0; font-size: clamp(16px, 2.4vw, 28px); font-weight: 700; }
+.ocioso .pequeno { font-size: clamp(12px, 1.4vw, 17px); font-weight: 500; color: rgba(255, 255, 255, 0.65); }
+.trocar { margin-top: 14px; border: 1px solid rgba(255,255,255,.3); background: transparent; color: #fff; padding: 8px 14px; border-radius: 8px; font: inherit; cursor: pointer; }
 .sem-rede { position: absolute; top: 10px; right: 10px; width: 12px; height: 12px; border-radius: 50%; background: #e5534b; box-shadow: 0 0 0 3px rgba(0,0,0,.3); }
-.inicio { position: absolute; inset: 0; background: rgba(246, 245, 242, 0.96); color: #1e1e1e; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; cursor: pointer; z-index: 10; }
-.inicio img { width: min(40vw, 380px); }
+.inicio { position: absolute; inset: 0; background: rgba(12, 12, 12, 0.82); backdrop-filter: blur(10px); color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; cursor: pointer; z-index: 10; }
+.inicio img { width: min(34vw, 320px); background: #fff; padding: clamp(12px, 2vw, 24px); border-radius: 22px; }
 .inicio p { font-size: clamp(18px, 2.6vw, 30px); font-weight: 700; margin: 0; animation: pulsar 1.6s ease-in-out infinite; }
 @keyframes pulsar { 50% { opacity: .45; } }
 .aviso-flutuante { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.75); padding: 10px 18px; border-radius: 999px; font-weight: 700; z-index: 11; }
