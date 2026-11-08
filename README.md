@@ -11,7 +11,8 @@ Roda 100% na Cloudflare, no plano gratuito. Deploy automático pelo GitHub Actio
 | Módulo | O que faz |
 | --- | --- |
 | Painel | Exibições do dia, telas online, receita recorrente, a receber, pendências |
-| Campanhas | Upload de imagem/vídeo, YouTube, chamada, QR code, período, onde exibir, telas específicas, repetições, aprovação |
+| Campanhas | Upload de imagem/vídeo, YouTube, chamada, QR code, período, dias da semana e faixas de horário, onde exibir, telas específicas, inserções por ciclo, aprovação, prévia de disponibilidade |
+| Inventário | Mapa tela × hora com o quanto do ciclo de anúncios já está vendido, espaços livres e horário de pico |
 | Clientes | Anunciantes e estabelecimentos, plano, mensalidade, vencimento, módulos ativos por cliente |
 | Telas | Cadastro de tablets e TVs com código de 6 letras, QR de instalação, status online, layout, cores, faixa de recados, entretenimento |
 | Motoristas | Cadastro, Pix, veículo, nível (bronze/prata/ouro), repasse fixo |
@@ -64,6 +65,18 @@ custa US$ 5/mês. Uma campanha aprovada chega às telas em até 10 minutos (ou n
 > a Cloudflare acrescenta um sufixo (ex.: `publicar1-3xk.pages.dev`) — o link certo aparece no resumo do Actions.
 > Endereços `*.workers.dev` sempre levam o subdomínio da conta (`publicar.SUACONTA.workers.dev`), por isso o
 > projeto usa Pages.
+
+## Inventário (share of voice)
+
+Cada tela vende um **ciclo de anúncios** (padrão 120 s, ajustável em *Configurações*). Uma campanha ocupa
+`duração × inserções` segundos do ciclo em cada tela e hora em que roda (ex.: 15 s × 1 = 1/8 do ciclo ≈ 30 exibições/hora).
+
+- Ao salvar ou aprovar, o sistema **recusa** a campanha se ela não couber em alguma tela/hora (campanhas ativas,
+  pausadas e aguardando aprovação reservam espaço; rascunho e encerrada, não). Pausar nunca é bloqueado.
+- **Dias da semana e faixas de horário** (ex.: Seg–Sex 06:00–11:00) permitem vender o mesmo espaço para
+  anunciantes diferentes em horários diferentes. O player confere o horário localmente, então funciona offline.
+- A sobra do ciclo é preenchida com o entretenimento da tela; ciclo lotado = só anúncios.
+- A página **Inventário** mostra a ocupação por tela e hora de um dia, para o vendedor saber o que ainda pode vender.
 
 ## Instalar uma tela
 

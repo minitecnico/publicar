@@ -14,6 +14,10 @@
         <label class="campo">CNPJ <input v-model="cfg.config.cnpj" type="text" /></label>
         <label class="campo">Chave Pix para recebimento <input v-model="cfg.config.chave_pix" type="text" /></label>
         <label class="campo">WhatsApp comercial <input v-model="cfg.config.whatsapp" type="tel" /></label>
+        <label class="campo">Ciclo de anúncios (segundos)
+          <input v-model.number="cfg.config.ciclo_segundos" type="number" min="30" max="3600" step="5" placeholder="120" />
+          <span class="dica">Tempo de anúncio que cada tela vende por ciclo. 120s = 8 espaços de 15s, cada um exibido ~30 vezes por hora. A sobra vira entretenimento.</span>
+        </label>
         <label class="campo inteira">Mensagem de cobrança
           <textarea v-model="cfg.config.mensagem_cobranca" rows="3" />
           <span class="dica">Variáveis: {cliente} {descricao} {valor} {vencimento} {pix} {empresa}</span>

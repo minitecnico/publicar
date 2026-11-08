@@ -105,15 +105,18 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 /* ------------------------------------------------------------ tipos */
-interface Campanha { id: number; nome: string; midia_tipo: string; midia_url: string; duracao: number; texto: string | null; prioridade: number; qr_url: string | null }
+interface Janela { ini: string; fim: string }
+interface Campanha { id: number; nome: string; midia_tipo: string; midia_url: string; duracao: number; texto: string | null; prioridade: number; qr_url: string | null; dias_semana?: number[]; horarios?: Janela[] }
 interface Conteudo { tipo: string; url?: string; duracao?: number; titulo?: string; texto?: string }
 interface Dados {
   tela: { id: number; nome: string; codigo: string; tipo: string; layout: string; cor_primaria: string; cor_fundo: string; logo_url: string | null; ticker: string | null; conteudo: Conteudo[] }
   campanhas: Campanha[]
+  /** ciclo de anúncios em segundos: a sobra é preenchida com entretenimento */
+  ciclo?: number
 }
 interface Item { chave: string; tipo: string; url?: string; duracao: number; texto?: string | null; titulo?: string; qr?: string; campanhaId?: number }
 
-const VERSAO = '0.1.0'
+const VERSAO = '0.2.0'
 const route = useRoute()
 const router = useRouter()
 
@@ -216,10 +219,37 @@ watch(
   { immediate: true },
 )
 
+/* ------------------------------------------------------------ dia e horário (fuso de Brasília) */
+const DIAS_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const fmtAgora = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Sao_Paulo', weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+function momentoSP() {
+  const p = Object.fromEntries(fmtAgora.formatToParts(new Date()).map((x) => [x.type, x.value]))
+  return { dia: DIAS_EN.indexOf(p.weekday), minuto: (Number(p.hour) % 24) * 60 + Number(p.minute) }
+}
+const agora = ref(momentoSP())
+const paraMin = (h: string) => {
+  const [hh, mm] = String(h || '').split(':').map(Number)
+  return hh * 60 + (mm || 0)
+}
+/** A campanha está na sua faixa de dia/horário agora? */
+function noAr(c: Campanha) {
+  const { dia, minuto } = agora.value
+  if (c.dias_semana?.length && !c.dias_semana.map(Number).includes(dia)) return false
+  if (!c.horarios?.length) return true
+  return c.horarios.some((j) => {
+    const i = paraMin(j.ini)
+    const f = paraMin(j.fim)
+    if (isNaN(i) || isNaN(f)) return false
+    if (f > i) return minuto >= i && minuto < f
+    if (f === i) return true
+    return minuto >= i || minuto < f // cruza a meia-noite
+  })
+}
+
 /* ------------------------------------------------------------ programação */
 const anuncios = computed<Item[]>(() => {
   const lista: Item[] = []
-  for (const c of dados.value?.campanhas || []) {
+  for (const c of (dados.value?.campanhas || []).filter(noAr)) {
     for (let r = 0; r < Math.max(1, Math.min(c.prioridade || 1, 5)); r++) {
       lista.push({ chave: `c${c.id}-${r}`, tipo: c.midia_tipo, url: c.midia_url, duracao: c.duracao || 15, texto: c.texto, qr: qrs[c.id], campanhaId: c.id })
     }
@@ -238,7 +268,7 @@ const atual = ref<Item | null>(null)
 const lateralAtual = ref<Item | null>(null)
 let iAnuncio = 0
 let iEnt = 0
-let anunciosDesdeEnt = 0
+let saldoEnt = 0 // segundos de entretenimento a que o ciclo ainda tem direito
 let iLateral = 0
 let timer: number | undefined
 let timerLateral: number | undefined
@@ -249,11 +279,18 @@ function proximoItem(): Item | null {
   const ent = entretenimento.value
   if (layoutLateral.value) return ent.length ? { ...ent[iEnt++ % ent.length], chave: `e${rodada}` } : null
   if (!ads.length && !ent.length) return null
-  if (ent.length && (!ads.length || anunciosDesdeEnt >= 2)) {
-    anunciosDesdeEnt = 0
-    return { ...ent[iEnt++ % ent.length], chave: `e${rodada}` }
+  if (!ads.length) return { ...ent[iEnt++ % ent.length], chave: `e${rodada}` }
+  // Ciclo de anúncios: os anúncios ocupam o tempo vendido; a sobra do ciclo vira entretenimento,
+  // distribuída entre os anúncios. Ciclo lotado = só anúncios (frequência garantida ao anunciante).
+  if (ent.length && saldoEnt >= 5) {
+    const e = ent[iEnt++ % ent.length]
+    const usar = e.tipo === 'video' ? e.duracao : Math.min(e.duracao, Math.max(5, Math.round(saldoEnt)))
+    saldoEnt -= usar
+    return { ...e, duracao: usar, chave: `e${rodada}` }
   }
-  anunciosDesdeEnt++
+  const ciclo = dados.value?.ciclo || 120
+  const tempoAds = ads.reduce((s, a) => s + Math.max(5, a.duracao), 0)
+  saldoEnt = Math.max(0, saldoEnt) + Math.max(0, ciclo - tempoAds) / ads.length
   return { ...ads[iAnuncio++ % ads.length], chave: `a${rodada}` }
 }
 
@@ -371,7 +408,11 @@ const recados = computed(() =>
 const duracaoTicker = computed(() => `${Math.max(15, recados.value.length * 0.28)}s`)
 
 const relogio = ref('')
-const atualizarRelogio = () => (relogio.value = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' }))
+function atualizarRelogio() {
+  relogio.value = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })
+  const m = momentoSP()
+  if (m.minuto !== agora.value.minuto || m.dia !== agora.value.dia) agora.value = m // reavalia as faixas de horário
+}
 
 function embedYoutube(url?: string) {
   const id = (url || '').match(/(?:youtu\.be\/|v=|embed\/|shorts\/)([\w-]{11})/)?.[1]

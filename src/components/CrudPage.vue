@@ -57,7 +57,7 @@
     <Modal :aberto="modalAberto" :titulo="form.id ? `Editar: ${form.nome || form.descricao || '#' + form.id}` : rotuloNovo" larga @fechar="modalAberto = false">
       <form id="form-crud" class="grade-form" @submit.prevent="salvar">
         <template v-for="c in campos" :key="c.key">
-          <label v-if="!c.mostrarSe || c.mostrarSe(form)" class="campo" :class="{ inteira: c.inteira || ['textarea', 'midia', 'conteudo', 'telas', 'checks'].includes(c.tipo || '') }">
+          <component :is="['horarios', 'conteudo'].includes(c.tipo || '') ? 'div' : 'label'" v-if="!c.mostrarSe || c.mostrarSe(form)" class="campo" :class="{ inteira: c.inteira || ['textarea', 'midia', 'conteudo', 'telas', 'checks', 'horarios'].includes(c.tipo || '') }">
             <span>{{ c.label }}<span v-if="c.obrigatorio" class="obrig"> *</span></span>
             <select v-if="c.tipo === 'select'" v-model="form[c.key]" :required="c.obrigatorio">
               <option v-for="o in c.opcoes" :key="o.valor" :value="o.valor">{{ o.rotulo }}</option>
@@ -72,6 +72,7 @@
             <div v-else-if="c.tipo === 'cor'" class="linha"><input v-model="form[c.key]" type="color" class="cor" /><input v-model="form[c.key]" type="text" /></div>
             <MediaInput v-else-if="c.tipo === 'midia'" v-model="form[c.key]" :tipo="form.midia_tipo" @tipo-detectado="(t) => (form.midia_tipo = t)" />
             <ConteudoEditor v-else-if="c.tipo === 'conteudo'" v-model="form[c.key]" />
+            <HorariosEditor v-else-if="c.tipo === 'horarios'" v-model="form[c.key]" />
             <div v-else-if="c.tipo === 'telas'" class="checks">
               <label class="check"><input type="checkbox" :checked="!form[c.key]?.length" @change="form[c.key] = []" /> Todas as telas do tipo escolhido</label>
               <label v-for="t in relacoes.telas || []" :key="t.id" class="check">
@@ -85,8 +86,9 @@
             </div>
             <input v-else :type="c.tipo === 'email' ? 'email' : c.tipo === 'telefone' ? 'tel' : 'text'" v-model="form[c.key]" :required="c.obrigatorio" />
             <span v-if="c.dica" class="dica">{{ c.dica }}</span>
-          </label>
+          </component>
         </template>
+        <div v-if="$slots.formulario" class="inteira"><slot name="formulario" :form="form" /></div>
       </form>
       <template #rodape>
         <button v-if="form.id" type="button" class="btn perigo" style="margin-right: auto" @click="excluir">Excluir</button>
@@ -104,6 +106,7 @@ import type { Campo } from '../campos'
 import { data, moeda, numero } from '../format'
 import { avisar, erro } from '../toast'
 import ConteudoEditor from './ConteudoEditor.vue'
+import HorariosEditor from './HorariosEditor.vue'
 import Icone from './Icone.vue'
 import MediaInput from './MediaInput.vue'
 import Modal from './Modal.vue'
@@ -196,7 +199,7 @@ function preencher(dados: Record<string, any>) {
 function novo(extra: Record<string, any> = {}) {
   const base: Record<string, any> = {}
   for (const c of props.campos) {
-    base[c.key] = ['telas', 'conteudo', 'checks'].includes(c.tipo || '') ? [] : c.tipo === 'relacao' ? null : c.tipo === 'select' ? c.opcoes?.[0]?.valor : ''
+    base[c.key] = ['telas', 'conteudo', 'checks', 'horarios'].includes(c.tipo || '') ? [] : c.tipo === 'relacao' ? null : c.tipo === 'select' ? c.opcoes?.[0]?.valor : ''
   }
   preencher({ ...base, ...props.padrao, ...(extra instanceof Event ? {} : extra) })
   modalAberto.value = true

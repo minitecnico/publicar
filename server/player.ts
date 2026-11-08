@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { cicloDoTenant, lista, type Janela } from './grade'
 import { hoje, type AppEnv } from './types'
 
 /** Rotas públicas usadas pelas telas (tablets e TVs). Identificação pelo código da tela. */
@@ -31,7 +32,7 @@ player.get('/:codigo', async (c) => {
 
   const dia = hoje()
   const { results } = await c.env.DB.prepare(
-    `SELECT id, nome, midia_tipo, midia_url, duracao, link_qr, texto, prioridade, telas_alvo
+    `SELECT id, nome, midia_tipo, midia_url, duracao, link_qr, texto, prioridade, telas_alvo, dias_semana, horarios
        FROM campanhas
       WHERE tenant_id = ? AND status = 'ativa'
         AND (inicio IS NULL OR inicio = '' OR inicio <= ?)
@@ -57,6 +58,9 @@ player.get('/:codigo', async (c) => {
       duracao: cp.duracao,
       texto: cp.texto,
       prioridade: cp.prioridade,
+      // dia e horário são conferidos no próprio player (ele guarda a programação e funciona offline)
+      dias_semana: lista<number>(cp.dias_semana).map(Number),
+      horarios: lista<Janela>(cp.horarios),
       qr_url: cp.link_qr ? `${origem}/api/r/${cp.id}/${tela.id}` : null,
     }))
 
@@ -77,6 +81,7 @@ player.get('/:codigo', async (c) => {
       conteudo,
     },
     campanhas,
+    ciclo: await cicloDoTenant(c.env.DB, tela.tenant_id),
     gerado_em: new Date().toISOString(),
   })
 })

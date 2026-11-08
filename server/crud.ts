@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { mensagemConflito, verificarCampanha } from './grade'
 import type { AppEnv } from './types'
 
 /**
@@ -11,6 +12,8 @@ interface Recurso {
   json?: string[]
   obrigatorias?: string[]
   aoCriar?: (dados: Record<string, unknown>) => Record<string, unknown>
+  /** Regra de negócio antes de gravar: devolve a mensagem de erro (HTTP 409) ou null. */
+  validar?: (db: D1Database, tid: string, dados: Record<string, unknown>, id?: number) => Promise<string | null>
 }
 
 function codigoTela(): string {
@@ -40,9 +43,11 @@ export const RECURSOS: Record<string, Recurso> = {
   },
   campanhas: {
     tabela: 'campanhas',
-    colunas: ['cliente_id', 'nome', 'midia_tipo', 'midia_url', 'duracao', 'link_qr', 'texto', 'inicio', 'fim', 'tipo_tela', 'telas_alvo', 'prioridade', 'status'],
-    json: ['telas_alvo'],
+    colunas: ['cliente_id', 'nome', 'midia_tipo', 'midia_url', 'duracao', 'link_qr', 'texto', 'inicio', 'fim', 'tipo_tela', 'telas_alvo', 'dias_semana', 'horarios', 'prioridade', 'status'],
+    json: ['telas_alvo', 'dias_semana', 'horarios'],
     obrigatorias: ['nome'],
+    // inventário: não deixa vender além do ciclo de anúncios
+    validar: async (db, tid, dados, id) => mensagemConflito(await verificarCampanha(db, tid, dados, id, true)),
   },
   faturas: {
     tabela: 'faturas',
@@ -103,6 +108,10 @@ crud.post('/:res', async (c) => {
   if (!r) return c.notFound()
   let dados = limpar(r, await c.req.json())
   for (const k of r.obrigatorias || []) if (dados[k] == null || dados[k] === '') return c.json({ erro: `Campo obrigatório: ${k}` }, 400)
+  if (r.validar) {
+    const msg = await r.validar(c.env.DB, c.get('sessao').tid, dados)
+    if (msg) return c.json({ erro: msg }, 409)
+  }
   if (r.aoCriar) dados = r.aoCriar(dados)
   dados.tenant_id = c.get('sessao').tid
   const cols = Object.keys(dados)
@@ -120,6 +129,10 @@ crud.put('/:res/:id', async (c) => {
   const dados = limpar(r, await c.req.json())
   const cols = Object.keys(dados)
   if (!cols.length) return c.json({ erro: 'Nada para atualizar' }, 400)
+  if (r.validar) {
+    const msg = await r.validar(c.env.DB, c.get('sessao').tid, dados, Number(c.req.param('id')))
+    if (msg) return c.json({ erro: msg }, 409)
+  }
   const row = await c.env.DB.prepare(
     `UPDATE ${r.tabela} SET ${cols.map((k) => `${k} = ?`).join(', ')} WHERE id = ? AND tenant_id = ? RETURNING *`,
   )

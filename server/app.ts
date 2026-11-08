@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { conferirSenha, emitirToken, exigirAdmin, exigirLogin, hashSenha } from './auth'
 import { crud } from './crud'
+import { carregarGrade, cicloDoTenant, ocupacao, rodaNaTela, segundosNoCiclo, verificarCampanha } from './grade'
 import { enviarMidia, servirMidia } from './media'
 import { player, redirecionarQr } from './player'
 import { hoje, mesAtual, type AppEnv } from './types'
@@ -254,6 +255,35 @@ app.post('/faturas/:id/pagar', async (c) => {
     .bind(hoje(), forma || 'pix', Number(c.req.param('id')), c.get('sessao').tid)
     .run()
   return c.json({ ok: true })
+})
+
+/* -------------------------------------------------------------- inventário */
+
+// Prévia no formulário: a campanha cabe no ciclo? (não grava nada)
+app.post('/campanhas/verificar', async (c) => {
+  const corpo = await c.req.json<Record<string, unknown>>()
+  const id = Number(corpo.id) || undefined
+  return c.json(await verificarCampanha(c.env.DB, c.get('sessao').tid, { ...corpo, status: corpo.status || 'aguardando' }, id))
+})
+
+// Mapa de ocupação de um dia: segundos vendidos por tela em cada hora.
+app.get('/inventario', async (c) => {
+  const tid = c.get('sessao').tid
+  const dia = /^\d{4}-\d{2}-\d{2}$/.test(c.req.query('data') || '') ? c.req.query('data')! : hoje()
+  const dow = new Date(`${dia}T12:00:00Z`).getUTCDay()
+  const [ciclo, grade] = await Promise.all([cicloDoTenant(c.env.DB, tid), carregarGrade(c.env.DB, tid)])
+  const doDia = grade.campanhas.filter((cp) => (!cp.inicio || cp.inicio <= dia) && (!cp.fim || cp.fim >= dia))
+  const ocup = ocupacao(grade.telas, doDia)
+  return c.json({
+    data: dia,
+    dia_semana: dow,
+    ciclo,
+    telas: grade.telas.map((t) => ({
+      ...t,
+      horas: ocup.get(t.id)!.slice(dow * 24, dow * 24 + 24),
+      campanhas: doDia.filter((cp) => rodaNaTela(cp, t)).map((cp) => ({ id: cp.id, nome: cp.nome, segundos: segundosNoCiclo(cp), status: cp.status })),
+    })),
+  })
 })
 
 // CRUD genérico por último, para não capturar as rotas específicas acima.

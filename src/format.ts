@@ -41,3 +41,18 @@ export function tempoDesde(ultimoPing: unknown): string {
 export function soDigitos(v: unknown) {
   return String(v || '').replace(/\D/g, '')
 }
+
+const DIAS_CURTOS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+
+/** "Seg–Sex · 06:00–11:00, 18:00–23:00" a partir de dias_semana e horarios da campanha. */
+export function resumoVeiculacao(c: { dias_semana?: unknown; horarios?: unknown }): string {
+  const dias = (Array.isArray(c.dias_semana) ? c.dias_semana : []).map(Number).filter((d) => d >= 0 && d <= 6)
+  const ordem = [1, 2, 3, 4, 5, 6, 0].filter((d) => dias.includes(d))
+  let txtDias = 'Todo dia'
+  if (dias.length && dias.length < 7) {
+    const seguidos = ordem.every((d, i) => i === 0 || [1, 2, 3, 4, 5, 6, 0].indexOf(d) === [1, 2, 3, 4, 5, 6, 0].indexOf(ordem[i - 1]) + 1)
+    txtDias = seguidos && ordem.length > 2 ? `${DIAS_CURTOS[ordem[0]]}–${DIAS_CURTOS[ordem[ordem.length - 1]]}` : ordem.map((d) => DIAS_CURTOS[d]).join(', ')
+  }
+  const hs = (Array.isArray(c.horarios) ? c.horarios : []) as { ini: string; fim: string }[]
+  return `${txtDias} · ${hs.length ? hs.map((h) => `${h.ini}–${h.fim}`).join(', ') : 'dia todo'}`
+}
