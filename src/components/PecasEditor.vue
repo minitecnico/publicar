@@ -5,6 +5,7 @@
         <Icone nome="upload" :tamanho="15" /> {{ enviando ? `Enviando ${enviando}…` : 'Enviar peças' }}
         <input type="file" accept="image/png,image/jpeg,image/webp,image/gif,video/mp4,video/webm" multiple hidden :disabled="!!enviando" @change="enviarArquivos" />
       </label>
+      <button type="button" class="btn pequeno destaque" :disabled="!!enviando" @click="gerador?.abrir(linkCampanha)"><Icone nome="mais" :tamanho="14" /> Criar arte</button>
       <div class="yt">
         <input v-model="linkYoutube" type="url" placeholder="ou cole um link do YouTube" @keydown.enter.prevent="adicionarYoutube" />
         <button type="button" class="btn pequeno" :disabled="!idYoutube(linkYoutube)" @click="adicionarYoutube">Adicionar</button>
@@ -18,6 +19,7 @@
     </p>
 
     <EnquadrarImagem ref="enquadrador" />
+    <GeradorCriativo ref="gerador" @criada="adicionarArte" />
     <div v-if="itens.length" class="lista">
       <div v-for="(p, i) in itens" :key="p._k" class="peca cartao" :class="'st-' + p.status">
         <div class="thumb">
@@ -102,6 +104,7 @@ import { api } from '../api'
 import { data } from '../format'
 import { avisar, erro } from '../toast'
 import EnquadrarImagem from './EnquadrarImagem.vue'
+import GeradorCriativo from './GeradorCriativo.vue'
 import Icone from './Icone.vue'
 
 interface Peca {
@@ -120,7 +123,7 @@ interface Peca {
   _k?: string
 }
 
-const props = defineProps<{ modelValue: Peca[] | null; espaco?: number; rotacao?: string }>()
+const props = defineProps<{ modelValue: Peca[] | null; espaco?: number; rotacao?: string; linkCampanha?: string | null }>()
 const emit = defineEmits<{ 'update:modelValue': [Peca[]] }>()
 
 let seq = 0
@@ -135,6 +138,13 @@ watch(
   },
 )
 const enquadrador = ref<InstanceType<typeof EnquadrarImagem>>()
+const gerador = ref<InstanceType<typeof GeradorCriativo>>()
+/** Arte feita no gerador: entra como peça aguardando aprovação; o link vira o QR rastreado da peça. */
+function adicionarArte(a: { nome: string; midia_url: string; link_qr: string | null }) {
+  itens.value.push({ _k: chave(), nome: a.nome, midia_tipo: 'imagem', midia_url: a.midia_url, link_qr: a.link_qr && a.link_qr !== props.linkCampanha ? a.link_qr : null, peso: 1, status: 'aguardando' })
+  emitir()
+  avisar('Arte criada e adicionada às peças')
+}
 const emitir = () => emit('update:modelValue', itens.value.map((p) => ({ ...p })))
 
 const espacoS = computed(() => Math.max(5, Number(props.espaco) || 15))

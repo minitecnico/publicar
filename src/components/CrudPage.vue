@@ -73,7 +73,7 @@
             <MediaInput v-else-if="c.tipo === 'midia'" v-model="form[c.key]" :tipo="form.midia_tipo" @tipo-detectado="(t) => (form.midia_tipo = t)" />
             <ConteudoEditor v-else-if="c.tipo === 'conteudo'" v-model="form[c.key]" />
             <HorariosEditor v-else-if="c.tipo === 'horarios'" v-model="form[c.key]" />
-            <PecasEditor v-else-if="c.tipo === 'pecas'" v-model="form[c.key]" :espaco="form.duracao" :rotacao="form.rotacao" />
+            <PecasEditor v-else-if="c.tipo === 'pecas'" v-model="form[c.key]" :espaco="form.duracao" :rotacao="form.rotacao" :link-campanha="form.link_qr" />
             <div v-else-if="c.tipo === 'telas'" class="checks">
               <label class="check"><input type="checkbox" :checked="!form[c.key]?.length" @change="form[c.key] = []" /> Todas as telas do tipo escolhido</label>
               <label v-for="t in relacoes.telas || []" :key="t.id" class="check">
