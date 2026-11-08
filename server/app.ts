@@ -5,7 +5,8 @@ import { crud } from './crud'
 import { novoToken, relatorioCampanha } from './relatorio'
 import { carregarGrade, configCiclo, ocupacao, rodaNaTela, segundosNoCiclo, verificarCampanha } from './grade'
 import { enviarMidia, servirMidia } from './media'
-import { player, redirecionarQr } from './player'
+import { loja, redirecionarQr } from './leads'
+import { player } from './player'
 import { hoje, mesAtual, type AppEnv } from './types'
 
 export const app = new Hono<AppEnv>().basePath('/api')
@@ -86,11 +87,13 @@ app.get('/publico/campanha/:token', async (c) => {
     ...r,
     // valores financeiros ficam só no painel
     resumo: r ? { ...r.resumo, investimento: undefined, cpm: undefined } : null,
+    cupons: r?.cupons ? { ...r.cupons, retorno: undefined } : null,
   })
 })
 
 app.route('/player', player)
 app.route('/r', redirecionarQr)
+app.route('/publico/loja', loja)
 app.get('/media/*', servirMidia)
 
 /* -------------------------------------------------------------- protegidas */
@@ -186,7 +189,7 @@ app.get('/relatorios', async (c) => {
   const cte = cteAudiencia(await padroesAudiencia(c.env.DB, tid), tid)
   const { results } = await c.env.DB.prepare(
     `${cte.sql}
-     SELECT cp.id, cp.nome, cl.nome AS cliente, cp.status, cp.valor, cp.inicio, cp.fim, cp.token_publico,
+     SELECT cp.id, cp.nome, cl.nome AS cliente, cp.status, cp.valor, cp.inicio, cp.fim, cp.token_publico, cp.token_loja, cp.cupom_oferta,
             COALESCE(SUM(e.total), 0) AS exibicoes, COALESCE(SUM(e.qr), 0) AS qr,
             COUNT(DISTINCT e.tela_id) AS telas, COUNT(DISTINCT e.dia) AS dias,
             ${SQL_IMPACTOS} AS impactos, ${SQL_ALCANCE} AS alcance
@@ -221,6 +224,22 @@ app.post('/campanhas/:id/link', async (c) => {
   const token = novoToken()
   await c.env.DB.prepare('UPDATE campanhas SET token_publico = ? WHERE id = ? AND tenant_id = ?').bind(token, id, tid).run()
   return c.json({ token })
+})
+
+// Link da loja para validar cupons (sem login).
+app.post('/campanhas/:id/link-loja', async (c) => {
+  const tid = c.get('sessao').tid
+  const id = Number(c.req.param('id'))
+  const atual = await c.env.DB.prepare('SELECT token_loja FROM campanhas WHERE id = ? AND tenant_id = ?').bind(id, tid).first<{ token_loja: string | null }>()
+  if (!atual) return c.json({ erro: 'Campanha não encontrada' }, 404)
+  if (atual.token_loja) return c.json({ token: atual.token_loja })
+  const token = novoToken()
+  await c.env.DB.prepare('UPDATE campanhas SET token_loja = ? WHERE id = ? AND tenant_id = ?').bind(token, id, tid).run()
+  return c.json({ token })
+})
+app.delete('/campanhas/:id/link-loja', async (c) => {
+  await c.env.DB.prepare('UPDATE campanhas SET token_loja = NULL WHERE id = ? AND tenant_id = ?').bind(Number(c.req.param('id')), c.get('sessao').tid).run()
+  return c.json({ ok: true })
 })
 
 // Revoga o link (o anterior deixa de funcionar).

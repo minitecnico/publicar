@@ -6,7 +6,7 @@
     subtitulo="A campanha é o contrato: período, telas, horários e o espaço comprado. As peças (criativos) giram dentro desse espaço."
     rotulo-novo="Nova campanha"
     :campos="campos"
-    :padrao="{ status: 'aguardando', duracao: 15, prioridade: 1, rotacao: 'sequencial', tipo_tela: 'todas', telas_alvo: [], dias_semana: [], horarios: [], pecas: [] }"
+    :padrao="{ status: 'aguardando', cupom_validade: 7, duracao: 15, prioridade: 1, rotacao: 'sequencial', tipo_tela: 'todas', telas_alvo: [], dias_semana: [], horarios: [], pecas: [] }"
   >
     <template #celula-nome="{ linha }">
       <div class="nome-camp">
@@ -70,7 +70,11 @@ const campos: Campo[] = [
     opcoes: op(['sequencial', 'Sequencial — as peças se alternam igualmente, na ordem'], ['peso', 'Por peso — define quanto cada peça aparece (ex.: 70% oferta, 30% marca)']),
   },
   { key: 'pecas', label: 'Peças (criativos)', tipo: 'pecas' },
-  { key: 'link_qr', label: 'Link do QR code da campanha', dica: 'Site, WhatsApp (wa.me/55…) ou Instagram. Cada peça pode ter um link próprio. Cada leitura é contada no relatório.', inteira: true },
+  { key: 'link_qr', label: 'Link do QR code da campanha', dica: 'Site ou Instagram. Cada peça pode ter um link próprio. Cada leitura é contada por tela, bairro e hora.', inteira: true },
+  { key: 'whatsapp', label: 'WhatsApp do anunciante', tipo: 'telefone', dica: 'O QR abre a conversa com a mensagem pronta (e o cupom, se houver).' },
+  { key: 'whatsapp_msg', label: 'Mensagem pronta no WhatsApp', placeholder: 'Olá! Vi o anúncio na tela do Publicar e quero saber mais.' },
+  { key: 'cupom_oferta', label: 'Cupom: o que o cliente ganha', placeholder: 'Ex.: 10% de desconto', dica: 'Preenchido = cada leitura do QR gera um código único; a loja valida e você prova a venda.' },
+  { key: 'cupom_validade', label: 'Validade do cupom (dias)', tipo: 'numero', mostrarSe: (f) => !!(f.cupom_oferta || '').trim() },
 
   // veiculação
   { key: 'inicio', label: 'Início', tipo: 'data', lista: true },

@@ -65,6 +65,13 @@
               <button class="btn pequeno fantasma perigo" title="O link atual deixa de funcionar" @click="revogarLink">Revogar</button>
             </template>
             <button v-else class="btn pequeno destaque" @click="gerarLink"><Icone nome="link" :tamanho="14" /> Link ao vivo para o anunciante</button>
+            <template v-if="det.cupom_oferta">
+              <button v-if="!tokenLoja" class="btn pequeno" @click="gerarLinkLoja">Link da loja (validar cupons)</button>
+              <template v-else>
+                <button class="btn pequeno" @click="copiar(linkLoja, 'Link da loja copiado: envie ao anunciante')">Copiar link da loja</button>
+                <button class="btn pequeno fantasma perigo" @click="revogarLinkLoja">Revogar link da loja</button>
+              </template>
+            </template>
           </div>
         </div>
 
@@ -77,9 +84,22 @@
           <div class="kpi"><span>QR lidos</span><strong>{{ numero(detalhe.resumo.qr) }}</strong><em>{{ detalhe.resumo.impactos ? `${((detalhe.resumo.qr / detalhe.resumo.impactos) * 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} a cada mil impactos` : '' }}</em></div>
         </div>
 
+        <div v-if="detalhe.cupons" class="bloco cupons">
+          <h3>Prova de venda (cupom: {{ detalhe.cupons.oferta }})</h3>
+          <div class="kpis">
+            <div class="kpi"><span>Cupons gerados</span><strong>{{ numero(detalhe.cupons.gerados) }}</strong><em>leituras do QR com cupom</em></div>
+            <div class="kpi destaque"><span>Usados na loja</span><strong>{{ numero(detalhe.cupons.usados) }}</strong><em>{{ detalhe.cupons.conversao.toLocaleString('pt-BR') }}% de conversão</em></div>
+            <div class="kpi"><span>Vendas informadas</span><strong>{{ moeda(detalhe.cupons.vendas) }}</strong><em>{{ detalhe.cupons.retorno != null ? `retorno de ${detalhe.cupons.retorno.toLocaleString('pt-BR')}× o investimento` : 'informe o valor investido para ver o retorno' }}</em></div>
+          </div>
+        </div>
+
         <div class="bloco">
-          <h3>Por hora do dia</h3>
+          <h3>Exibições por hora do dia</h3>
           <BarrasHoras :serie="detalhe.por_hora" />
+        </div>
+        <div v-if="detalhe.resumo.qr" class="bloco">
+          <h3>Leituras do QR por hora</h3>
+          <BarrasHoras :serie="detalhe.por_hora.map((h: any) => ({ hora: h.hora, total: h.qr }))" />
         </div>
 
         <div v-if="detalhe.por_bairro?.length" class="bloco">
@@ -181,6 +201,34 @@ async function carregar() {
 
 /* ---------- link público do relatório */
 const token = ref<string | null>(null)
+const tokenLoja = ref<string | null>(null)
+const linkLoja = computed(() => (tokenLoja.value ? `${location.origin}/validar/${tokenLoja.value}` : ''))
+async function copiar(texto: string, msg: string) {
+  try {
+    await navigator.clipboard.writeText(texto)
+    avisar(msg)
+  } catch {
+    prompt('Copie o link:', texto)
+  }
+}
+async function gerarLinkLoja() {
+  try {
+    tokenLoja.value = (await api.post<{ token: string }>(`/campanhas/${det.value.id}/link-loja`)).token
+    await copiar(linkLoja.value, 'Link da loja copiado: envie ao anunciante')
+  } catch (e) {
+    erro(e)
+  }
+}
+async function revogarLinkLoja() {
+  if (!confirm('Revogar o link da loja? Quem tiver o link atual não consegue mais validar cupons.')) return
+  try {
+    await api.del(`/campanhas/${det.value.id}/link-loja`)
+    tokenLoja.value = null
+    avisar('Link da loja revogado')
+  } catch (e) {
+    erro(e)
+  }
+}
 const linkPublico = computed(() => (token.value ? `${location.origin}/relatorio/${token.value}` : ''))
 const whatsLink = computed(() => `https://wa.me/?text=${encodeURIComponent(`Acompanhe sua campanha "${det.value?.nome}" ao vivo: ${linkPublico.value}`)}`)
 async function gerarLink() {
@@ -214,6 +262,7 @@ async function detalhar(l: any) {
   det.value = l
   detalhe.value = null
   token.value = l.token_publico || null
+  tokenLoja.value = l.token_loja || null
   try {
     detalhe.value = await api.get(`/relatorios/campanha/${l.id}?de=${de.value}&ate=${ate.value}`)
   } catch (e) {

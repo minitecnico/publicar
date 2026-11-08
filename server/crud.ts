@@ -51,7 +51,7 @@ export const RECURSOS: Record<string, Recurso> = {
   },
   campanhas: {
     tabela: 'campanhas',
-    colunas: ['cliente_id', 'nome', 'midia_tipo', 'midia_url', 'duracao', 'link_qr', 'texto', 'inicio', 'fim', 'tipo_tela', 'telas_alvo', 'dias_semana', 'horarios', 'prioridade', 'rotacao', 'status', 'valor'],
+    colunas: ['cliente_id', 'nome', 'midia_tipo', 'midia_url', 'duracao', 'link_qr', 'texto', 'inicio', 'fim', 'tipo_tela', 'telas_alvo', 'dias_semana', 'horarios', 'prioridade', 'rotacao', 'status', 'valor', 'whatsapp', 'whatsapp_msg', 'cupom_oferta', 'cupom_validade'],
     json: ['telas_alvo', 'dias_semana', 'horarios'],
     obrigatorias: ['nome'],
     validar: async (db, tid, dados, id, corpo) => {

@@ -106,7 +106,8 @@
                   <span v-else class="espaco" />
                   <div v-if="atual.qr" class="qr">
                     <img :src="atual.qr" alt="QR code" />
-                    <span>Aponte a<br />câmera</span>
+                    <span v-if="atual.cta" class="cta">{{ atual.cta }}</span>
+                    <span v-else>Aponte a<br />câmera</span>
                   </div>
                 </div>
 
@@ -179,7 +180,7 @@ import { useRoute, useRouter } from 'vue-router'
 interface Janela { ini: string; fim: string }
 interface Peca { id: number; tipo: string; url: string; duracao: number | null; texto: string | null; peso: number; qr_url: string | null; ajuste?: string }
 /** duracao = espaço comprado; as peças giram dentro dele */
-interface Campanha { id: number; nome: string; duracao: number; prioridade: number; rotacao?: string; pecas?: Peca[]; dias_semana?: number[]; horarios?: Janela[] }
+interface Campanha { id: number; nome: string; duracao: number; prioridade: number; rotacao?: string; cta?: string | null; pecas?: Peca[]; dias_semana?: number[]; horarios?: Janela[] }
 interface Conteudo { tipo: string; url?: string; duracao?: number; titulo?: string; texto?: string }
 interface Manchete { titulo: string; fonte: string }
 interface ConteudoAuto {
@@ -201,7 +202,7 @@ interface Dados {
   /** minutos entre envios da prova de exibição (o servidor ajusta ao tamanho da rede) */
   envio_min?: number
 }
-interface Item { chave: string; tipo: string; url?: string; duracao: number; texto?: string | null; titulo?: string; qr?: string; campanhaId?: number; pecaId?: number; lista?: Manchete[] }
+interface Item { chave: string; tipo: string; url?: string; duracao: number; texto?: string | null; titulo?: string; qr?: string; campanhaId?: number; pecaId?: number; lista?: Manchete[]; cta?: string | null }
 
 const VERSAO = '0.8.0'
 const route = useRoute()
@@ -420,6 +421,7 @@ function montarAnuncio(espaco: Item, chave: string): Item | null {
     qr: p.qr_url ? qrs[p.qr_url] : undefined,
     campanhaId: c.id,
     pecaId: p.id,
+    cta: c.cta,
   }
 }
 
@@ -771,6 +773,7 @@ onBeforeUnmount(() => {
 .chamada::before { content: ''; position: absolute; left: 0; top: 0.08em; bottom: 0.08em; width: 0.16em; border-radius: 999px; background: var(--cor); }
 .qr { flex-shrink: 0; display: flex; align-items: center; gap: 12px; background: #fff; color: #1e1e1e; padding: 10px 14px 10px 10px; border-radius: 16px; box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45); border-bottom: 4px solid var(--cor); animation: subir 0.7s 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
 .qr img { width: clamp(84px, 10.5vw, 168px); height: auto; display: block; border-radius: 6px; }
+.qr span.cta { max-width: 9em; text-transform: none; letter-spacing: 0; font-size: clamp(12px, 1.3vw, 20px); }
 .qr span { font-size: clamp(11px, 1.15vw, 17px); font-weight: 800; line-height: 1.15; text-transform: uppercase; letter-spacing: 0.04em; }
 @keyframes subir { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
 

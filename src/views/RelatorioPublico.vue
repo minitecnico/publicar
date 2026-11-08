@@ -25,6 +25,15 @@
         <div class="kpi"><span>QR lidos</span><strong>{{ numero(r.resumo.qr) }}</strong><em>acessos pelo QR code</em></div>
       </section>
 
+      <section v-if="r.cupons" class="cartao pad bloco">
+        <h2>Prova de venda · cupom "{{ r.cupons.oferta }}"</h2>
+        <div class="kpis">
+          <div class="kpi"><span>Cupons gerados</span><strong>{{ numero(r.cupons.gerados) }}</strong><em>clientes que leram o QR</em></div>
+          <div class="kpi destaque"><span>Usados na loja</span><strong>{{ numero(r.cupons.usados) }}</strong><em>{{ r.cupons.conversao.toLocaleString('pt-BR') }}% de conversão</em></div>
+          <div class="kpi"><span>Vendas</span><strong>{{ (r.cupons.vendas || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) }}</strong><em>informadas na validação</em></div>
+        </div>
+      </section>
+
       <section class="cartao pad bloco">
         <h2>Exibições por dia</h2>
         <BarrasDias :serie="r.por_dia" :num-dias="numDias" :ate="r.ate" titulo="Exibições por dia" />

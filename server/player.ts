@@ -1,4 +1,4 @@
-import { Hono, type Context } from 'hono'
+import { Hono } from 'hono'
 import { obterConteudo } from './conteudo'
 import { configCiclo, lista, type Janela } from './grade'
 import { hoje, type AppEnv } from './types'
@@ -60,7 +60,7 @@ player.get('/:codigo', async (c) => {
   ])
   const telasAtivas = Number((contagem.results[0] as { n: number } | undefined)?.n) || 1
   const { results } = await c.env.DB.prepare(
-    `SELECT id, nome, duracao, link_qr, prioridade, rotacao, telas_alvo, dias_semana, horarios
+    `SELECT id, nome, duracao, link_qr, prioridade, rotacao, telas_alvo, dias_semana, horarios, whatsapp, cupom_oferta
        FROM campanhas
       WHERE tenant_id = ? AND status = 'ativa'
         AND (inicio IS NULL OR inicio = '' OR inicio <= ?)
@@ -108,6 +108,8 @@ player.get('/:codigo', async (c) => {
       duracao: cp.duracao, // duração do espaço comprado
       prioridade: cp.prioridade,
       rotacao: cp.rotacao,
+      // chamada do QR na tela
+      cta: cp.cupom_oferta ? `Aponte e ganhe ${String(cp.cupom_oferta).trim()}` : cp.whatsapp ? 'Chame no WhatsApp' : null,
       pecas: pecasPor.get(Number(cp.id))!.map((p) => ({
         id: p.id,
         tipo: p.midia_tipo,
@@ -116,7 +118,7 @@ player.get('/:codigo', async (c) => {
         texto: p.texto,
         peso: cp.rotacao === 'peso' ? p.peso : 1,
         ajuste: p.ajuste === 'inteira' ? 'inteira' : 'preencher',
-        qr_url: p.link_qr || cp.link_qr ? `${origem}/api/r/${cp.id}/${tela.id}/${p.id}` : null,
+        qr_url: p.link_qr || cp.link_qr || cp.whatsapp || cp.cupom_oferta ? `${origem}/api/r/${cp.id}/${tela.id}/${p.id}` : null,
       })),
       // dia e horário são conferidos no próprio player (ele guarda a programação e funciona offline)
       dias_semana: lista<number>(cp.dias_semana).map(Number),
@@ -234,31 +236,3 @@ player.post('/:codigo/exibicoes', async (c) => {
   if (stmts.length) await db.batch(stmts)
   return c.json({ ok: true, gravados: validos.length })
 })
-
-/** Redirecionamento do QR code: conta a leitura e leva ao link do anunciante. */
-export const redirecionarQr = new Hono<AppEnv>()
-
-async function qr(c: Context<AppEnv>) {
-  const cid = Number(c.req.param('cid'))
-  const tid = Number(c.req.param('tid'))
-  const pid = Number(c.req.param('pid')) || 0
-  // link da peça; se vazio, o da campanha
-  const cp = await c.env.DB.prepare(
-    `SELECT cp.tenant_id, COALESCE(NULLIF(p.link_qr, ''), cp.link_qr) AS link_qr
-       FROM campanhas cp LEFT JOIN pecas p ON p.id = ? AND p.campanha_id = cp.id
-      WHERE cp.id = ?`,
-  )
-    .bind(pid, cid)
-    .first<{ tenant_id: string; link_qr: string | null }>()
-  if (!cp?.link_qr) return c.text('Link não encontrado', 404)
-  await c.env.DB.prepare(
-    `INSERT INTO exibicoes (tenant_id, campanha_id, tela_id, dia, total, qr) VALUES (?, ?, ?, ?, 0, 1)
-     ON CONFLICT (campanha_id, tela_id, dia) DO UPDATE SET qr = qr + 1`,
-  )
-    .bind(cp.tenant_id, cid, tid, hoje())
-    .run()
-  const destino = /^https?:\/\//i.test(cp.link_qr) ? cp.link_qr : `https://${cp.link_qr}`
-  return c.redirect(destino, 302)
-}
-redirecionarQr.get('/:cid/:tid', qr)
-redirecionarQr.get('/:cid/:tid/:pid', qr)

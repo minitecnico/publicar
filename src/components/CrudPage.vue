@@ -85,7 +85,7 @@
                 <input type="checkbox" :checked="form[c.key]?.includes(o.valor)" @change="alternar(c.key, o.valor)" /> {{ o.rotulo }}
               </label>
             </div>
-            <input v-else :type="c.tipo === 'email' ? 'email' : c.tipo === 'telefone' ? 'tel' : 'text'" v-model="form[c.key]" :required="c.obrigatorio" />
+            <input v-else :type="c.tipo === 'email' ? 'email' : c.tipo === 'telefone' ? 'tel' : 'text'" v-model="form[c.key]" :required="c.obrigatorio" :placeholder="textoExemplo(c)" />
             <span v-if="c.dica" class="dica">{{ c.dica }}</span>
           </component>
         </template>
