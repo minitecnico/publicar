@@ -1,10 +1,10 @@
-# Configuração do projeto Cloudflare Pages "publicar".
+# Configuração do projeto Cloudflare Pages "publicar1".
 #
 # Em produção este arquivo é REESCRITO pelo GitHub Actions (scripts/provision.mjs),
 # que cria o banco D1 e o namespace KV se ainda não existirem e preenche os IDs reais.
 # Os IDs abaixo só servem para desenvolvimento local (wrangler pages dev).
 
-name = "publicar"
+name = "publicar1"
 pages_build_output_dir = "dist"
 compatibility_date = "2026-10-01"
 compatibility_flags = ["nodejs_compat"]

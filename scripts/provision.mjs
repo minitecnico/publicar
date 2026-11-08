@@ -5,7 +5,7 @@
  * - Cria o banco D1 "publicar-db" se não existir
  * - Cria o namespace KV "publicar-media" se não existir (mídias, sem cartão de crédito)
  * - Opcional: cria o bucket R2 "publicar-media" (USE_R2=true; exige cartão cadastrado)
- * - Cria o projeto Pages (padrão "publicar" → publicar.pages.dev) se não existir
+ * - Cria o projeto Pages (padrão "publicar1" → publicar1.pages.dev) se não existir
  * - Reescreve o wrangler.toml com os IDs reais
  *
  * É idempotente: pode rodar em todo deploy. Requer CLOUDFLARE_API_TOKEN e CLOUDFLARE_ACCOUNT_ID.
@@ -13,7 +13,7 @@
 import { execSync } from 'node:child_process'
 import { writeFileSync } from 'node:fs'
 
-const PROJETO = process.env.PAGES_PROJECT || 'publicar'
+const PROJETO = process.env.PAGES_PROJECT || 'publicar1'
 const BANCO = process.env.D1_NAME || 'publicar-db'
 const KV = process.env.KV_TITLE || 'publicar-media'
 const BUCKET = process.env.R2_BUCKET || 'publicar-media'

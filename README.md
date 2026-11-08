@@ -3,8 +3,8 @@
 Plataforma de mídia local: painel administrativo + player para tablets em carros de aplicativo e TVs em estabelecimentos.
 Roda 100% na Cloudflare, no plano gratuito. Deploy automático pelo GitHub Actions.
 
-- **Painel:** `https://publicar.pages.dev`
-- **Player das telas:** `https://publicar.pages.dev/tela` (ou `/tela/CODIGO`)
+- **Painel:** `https://publicar1.pages.dev`
+- **Player das telas:** `https://publicar1.pages.dev/tela` (ou `/tela/CODIGO`)
 
 ## O que já vem pronto
 
@@ -24,7 +24,7 @@ Roda 100% na Cloudflare, no plano gratuito. Deploy automático pelo GitHub Actio
 ## Arquitetura (tudo Cloudflare, plano grátis)
 
 ```
-GitHub (push na main) ──► GitHub Actions ──► Cloudflare Pages "publicar"
+GitHub (push na main) ──► GitHub Actions ──► Cloudflare Pages "publicar1"
                                               ├─ dist/            Vue 3 + Vite (painel e player)
                                               ├─ functions/api/   Pages Functions + Hono (API /api/*)
                                               ├─ D1  publicar-db  banco SQLite (migrations/)
@@ -54,14 +54,14 @@ custa US$ 5/mês. Uma campanha aprovada chega às telas em até 10 minutos (ou n
    - Secret `CLOUDFLARE_API_TOKEN` = o token criado
    - Secret `CLOUDFLARE_ACCOUNT_ID` = o Account ID
    - (opcional) Secret `APP_SECRET` = uma frase longa aleatória para assinar as sessões
-   - (opcional) Variable `PAGES_PROJECT` = outro nome, se `publicar` já estiver em uso na Cloudflare
+   - (opcional) Variable `PAGES_PROJECT` = outro nome, se `publicar1` já estiver em uso na Cloudflare
    - (opcional) Variable `USE_R2` = `true` para guardar mídias no R2 (precisa de cartão cadastrado)
 4. Faça um push na `main` (ou rode o workflow manualmente em *Actions → Deploy Publicar → Run workflow*).
    O workflow cria sozinho o banco D1, o KV e o projeto Pages, aplica as migrations e publica.
-5. Abra `https://publicar.pages.dev` e crie a conta de administrador no primeiro acesso.
+5. Abra `https://publicar1.pages.dev` e crie a conta de administrador no primeiro acesso.
 
-> O endereço `publicar.pages.dev` só é garantido se o nome estiver livre na Cloudflare. Se outra conta já usa,
-> a Cloudflare acrescenta um sufixo (ex.: `publicar-3xk.pages.dev`) — o link certo aparece no resumo do Actions.
+> O endereço `publicar1.pages.dev` só é garantido se o nome estiver livre na Cloudflare. Se outra conta já usa,
+> a Cloudflare acrescenta um sufixo (ex.: `publicar1-3xk.pages.dev`) — o link certo aparece no resumo do Actions.
 > Endereços `*.workers.dev` sempre levam o subdomínio da conta (`publicar.SUACONTA.workers.dev`), por isso o
 > projeto usa Pages.
 
