@@ -14,14 +14,16 @@
     </div>
     <p class="dica">
       Várias peças giram dentro do mesmo espaço de <strong>{{ espacoS }}s</strong>: cada inserção mostra a próxima peça
-      {{ rotacao === 'peso' ? 'conforme o peso' : 'em sequência' }}. Formato ideal 1280×800 ou 1920×1080 (paisagem); vídeo MP4 de até {{ espacoS }}s e 25 MB.
+      {{ rotacao === 'peso' ? 'conforme o peso' : 'em sequência' }}. Padrão das telas: <strong>1920×1080 (16:9)</strong>. Imagens fora do formato abrem o enquadramento antes do envio; vídeo MP4 em 16:9, de até {{ espacoS }}s e 25 MB.
     </p>
 
+    <EnquadrarImagem ref="enquadrador" />
     <div v-if="itens.length" class="lista">
       <div v-for="(p, i) in itens" :key="p._k" class="peca cartao" :class="'st-' + p.status">
         <div class="thumb">
-          <img v-if="p.midia_tipo === 'imagem'" :src="p.midia_url" alt="" :class="{ inteira: p.ajuste === 'inteira' }" @load="medir(p, $event)" />
-          <video v-else-if="p.midia_tipo === 'video'" :src="p.midia_url" muted preload="metadata" :class="{ inteira: p.ajuste === 'inteira' }" @loadedmetadata="medirVideo(p, $event)" />
+          <img v-if="p.midia_tipo === 'imagem'" :src="p.midia_url" alt="" @load="medir(p, $event)" />
+          <video v-else-if="p.midia_tipo === 'video'" :src="p.midia_url" muted preload="metadata" @loadedmetadata="medirVideo(p, $event)" />
+          <span v-if="padrao(p)" class="ok-formato" title="No formato padrão das telas">16:9 ✓</span>
           <img v-else-if="idYoutube(p.midia_url)" :src="`https://i.ytimg.com/vi/${idYoutube(p.midia_url)}/mqdefault.jpg`" alt="" />
           <span class="tipo">{{ p.midia_tipo === 'youtube' ? 'YouTube' : p.midia_tipo === 'video' ? `Vídeo · ${p.duracao || '?'}s` : 'Imagem' }}</span>
           <span class="ordem">{{ i + 1 }}</span>
@@ -42,12 +44,6 @@
             <label v-if="p.midia_tipo !== 'imagem'" class="mini-campo">Duração (s)
               <input v-model.number="p.duracao" type="number" min="1" @input="emitir" />
             </label>
-            <label v-if="p.midia_tipo !== 'youtube'" class="mini-campo">Na tela
-              <select v-model="p.ajuste" @change="emitir">
-                <option value="preencher">Preencher a tela</option>
-                <option value="inteira">Mostrar inteira</option>
-              </select>
-            </label>
             <label v-if="rotacao === 'peso'" class="mini-campo">Peso
               <input v-model.number="p.peso" type="number" min="1" max="10" @input="emitir" />
             </label>
@@ -57,7 +53,10 @@
             <span v-if="p.link_qr" class="selo laranja" :title="p.link_qr">QR próprio</span>
           </div>
 
-          <p v-for="a in alertas(p)" :key="a.txt" class="alerta" :class="a.grave ? 'grave' : ''">{{ a.txt }}</p>
+          <p v-for="a in alertas(p)" :key="a.txt" class="alerta" :class="a.grave ? 'grave' : ''">
+            {{ a.txt }}
+            <button v-if="a.enquadrar" type="button" class="btn pequeno destaque" :disabled="!!enviando" @click="reenquadrar(p)">Enquadrar em 1920×1080</button>
+          </p>
 
           <details>
             <summary>Chamada, QR, período e arquivo</summary>
@@ -102,6 +101,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { api } from '../api'
 import { data } from '../format'
 import { avisar, erro } from '../toast'
+import EnquadrarImagem from './EnquadrarImagem.vue'
 import Icone from './Icone.vue'
 
 interface Peca {
@@ -134,6 +134,7 @@ watch(
     if (limpo(v || []) !== limpo(itens.value)) itens.value = copiar(v)
   },
 )
+const enquadrador = ref<InstanceType<typeof EnquadrarImagem>>()
 const emitir = () => emit('update:modelValue', itens.value.map((p) => ({ ...p })))
 
 const espacoS = computed(() => Math.max(5, Number(props.espaco) || 15))
@@ -155,21 +156,23 @@ function medirVideo(p: Peca, e: Event) {
     emitir()
   }
 }
+const PROPORCAO = 16 / 9
+const no169 = (m?: { w: number; h: number }) => !!m && m.w > 0 && Math.abs(m.w / m.h - PROPORCAO) < 0.02
+const padrao = (p: Peca) => p.midia_tipo !== 'youtube' && no169(medidas[p.midia_url])
+
 function alertas(p: Peca) {
-  const out: { txt: string; grave?: boolean }[] = []
+  const out: { txt: string; grave?: boolean; enquadrar?: boolean }[] = []
   if (p.midia_tipo !== 'imagem' && !p.duracao) out.push({ txt: 'Informe a duração do vídeo.', grave: true })
   if (p.midia_tipo !== 'imagem' && (p.duracao || 0) > espacoS.value)
     out.push({ txt: `Vídeo de ${p.duracao}s não cabe no espaço de ${espacoS.value}s. Edite o vídeo ou aumente a duração do espaço.`, grave: true })
   const m = medidas[p.midia_url]
   if (m && m.w && m.h) {
-    const cortaMuito = p.ajuste !== 'inteira'
-    if (m.h > m.w)
-      out.push({ txt: cortaMuito
-        ? `Peça em retrato (${m.w}×${m.h}) numa tela paisagem: preenchendo a tela, só a faixa do meio aparece. Prefira 1920×1080 ou use "Mostrar inteira".`
-        : `Peça em retrato (${m.w}×${m.h}): aparece inteira, com o fundo desfocado nas laterais.` })
-    else if (Math.abs(m.w / m.h - 16 / 10) > 0.12 && Math.abs(m.w / m.h - 16 / 9) > 0.12)
-      out.push({ txt: `Proporção fora do padrão (${m.w}×${m.h}): ${cortaMuito ? 'as bordas serão cortadas para preencher a tela' : 'vai sobrar fundo desfocado'}. Ideal: 16:9 ou 16:10.` })
-    if (m.w < 960) out.push({ txt: `Resolução baixa (${m.w}×${m.h}): pode ficar borrada. Mínimo recomendado: 1280×720.` })
+    if (!no169(m)) {
+      if (p.midia_tipo === 'imagem')
+        out.push({ txt: `Fora do padrão (${m.w}×${m.h}): na tela aparece inteira, com sobras. Padronize para encaixar perfeito.`, enquadrar: true })
+      else out.push({ txt: `Vídeo fora de 16:9 (${m.w}×${m.h}): aparece inteiro, com sobras nas laterais. Exporte em 1920×1080.` })
+    }
+    if (m.w < 1280) out.push({ txt: `Resolução baixa (${m.w}×${m.h}): pode ficar borrada em TVs. Recomendado: 1920×1080.` })
   }
   return out
 }
@@ -201,8 +204,11 @@ async function enviarArquivos(e: Event) {
     try {
       const video = arq.type.startsWith('video')
       const duracao = video ? await duracaoLocal(arq) : null
-      const r = await api.upload(arq)
-      itens.value.push({ _k: chave(), nome: nomeArquivo(arq.name), midia_tipo: video ? 'video' : 'imagem', midia_url: r.url, duracao, peso: 1, ajuste: 'preencher', status: 'aguardando' })
+      // imagem: padroniza em 1920×1080 (abre o enquadramento se estiver fora de 16:9)
+      const final = video ? arq : await enquadrador.value!.padronizar(arq)
+      if (!final) continue
+      const r = await api.upload(final)
+      itens.value.push({ _k: chave(), nome: nomeArquivo(arq.name), midia_tipo: video ? 'video' : 'imagem', midia_url: r.url, duracao, peso: 1, status: 'aguardando' })
       emitir()
       ok++
     } catch (err) {
@@ -221,12 +227,31 @@ async function trocarArquivo(p: Peca, e: Event) {
   try {
     const video = arq.type.startsWith('video')
     const duracao = video ? await duracaoLocal(arq) : null
-    const r = await api.upload(arq)
+    const final = video ? arq : await enquadrador.value!.padronizar(arq)
+    if (!final) return
+    const r = await api.upload(final)
     Object.assign(p, { midia_url: r.url, midia_tipo: video ? 'video' : 'imagem', duracao, status: 'aguardando' })
     emitir()
     avisar('Arquivo trocado: a peça volta para aprovação')
   } catch (err) {
     erro(err)
+  }
+}
+
+/** Peça antiga fora do padrão: baixa, enquadra e substitui pelo arquivo 1920×1080. */
+async function reenquadrar(p: Peca) {
+  try {
+    const final = await enquadrador.value!.padronizarUrl(p.midia_url, `${p.nome || 'peca'}.jpg`)
+    if (!final) return
+    enviando.value = '1/1'
+    const r = await api.upload(final)
+    p.midia_url = r.url
+    emitir()
+    avisar('Peça padronizada em 1920×1080. Salve a campanha para aplicar.')
+  } catch (err) {
+    erro(err)
+  } finally {
+    enviando.value = ''
   }
 }
 
@@ -265,9 +290,10 @@ function aprovarTodas() {
 .peca { display: grid; grid-template-columns: 168px 1fr auto; gap: 12px; padding: 10px; box-shadow: none; align-items: start; }
 .peca.st-reprovada { opacity: 0.6; }
 .peca.st-aguardando { border-color: #f3d3a6; background: #fffaf2; }
-.thumb { position: relative; width: 168px; aspect-ratio: 16 / 10; background: #111; border-radius: 6px; overflow: hidden; }
-.thumb img, .thumb video { width: 100%; height: 100%; object-fit: cover; }
-.thumb img.inteira, .thumb video.inteira { object-fit: contain; }
+.thumb { position: relative; width: 168px; aspect-ratio: 16 / 9; background: #111; border-radius: 6px; overflow: hidden; }
+.thumb img, .thumb video { width: 100%; height: 100%; object-fit: contain; }
+.thumb .ok-formato { position: absolute; right: 6px; top: 6px; background: var(--verde); color: #fff; font-size: 0.66rem; font-weight: 700; padding: 1px 6px; border-radius: 999px; }
+.alerta .btn { margin-left: 6px; vertical-align: middle; }
 .thumb .tipo { position: absolute; left: 6px; bottom: 6px; background: rgba(0, 0, 0, 0.7); color: #fff; font-size: 0.7rem; padding: 2px 7px; border-radius: 999px; }
 .thumb .ordem { position: absolute; left: 6px; top: 6px; background: var(--laranja); color: var(--grafite); font-weight: 800; font-size: 0.72rem; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; }
 .corpo { display: flex; flex-direction: column; gap: 6px; min-width: 0; }

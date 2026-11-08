@@ -31,12 +31,11 @@
               <!-- moldura: a peça fica num quadro com margem, cantos arredondados e borda na cor da marca -->
               <div class="moldura">
                 <div class="fundo-peca" :style="fundoPeca(atual)" />
-                <img v-if="atual.tipo === 'imagem'" :src="fonte(atual.url)" alt="" class="midia zoom" :class="{ inteira: atual.inteira }" />
+                <img v-if="atual.tipo === 'imagem'" :src="fonte(atual.url)" alt="" class="midia" />
                 <video
                   v-else-if="atual.tipo === 'video'"
                   :src="fonte(atual.url)"
                   class="midia"
-                  :class="{ inteira: atual.inteira }"
                   autoplay
                   playsinline
                   :muted="mudo"
@@ -83,7 +82,7 @@
           <Transition name="fade" mode="out-in">
             <div v-if="lateralAtual" :key="lateralAtual.chave" class="item" :style="{ '--dur': `${Math.max(8, lateralAtual.duracao)}s` }">
               <div class="fundo-peca" :style="fundoPeca(lateralAtual)" />
-              <img v-if="lateralAtual.tipo === 'imagem'" :src="fonte(lateralAtual.url)" alt="" class="midia zoom" />
+              <img v-if="lateralAtual.tipo === 'imagem'" :src="fonte(lateralAtual.url)" alt="" class="midia" />
               <video v-else-if="lateralAtual.tipo === 'video'" :src="fonte(lateralAtual.url)" class="midia" autoplay muted playsinline loop />
               <span class="selo-pub">Publicidade</span>
               <div v-if="lateralAtual.texto || lateralAtual.qr" class="faixa-info compacta">
@@ -147,7 +146,7 @@ interface Dados {
   /** minutos entre envios da prova de exibição (o servidor ajusta ao tamanho da rede) */
   envio_min?: number
 }
-interface Item { chave: string; tipo: string; url?: string; duracao: number; texto?: string | null; titulo?: string; qr?: string; campanhaId?: number; pecaId?: number; inteira?: boolean }
+interface Item { chave: string; tipo: string; url?: string; duracao: number; texto?: string | null; titulo?: string; qr?: string; campanhaId?: number; pecaId?: number }
 
 const VERSAO = '0.4.0'
 const route = useRoute()
@@ -335,7 +334,6 @@ function montarAnuncio(espaco: Item, chave: string): Item | null {
     qr: p.qr_url ? qrs[p.qr_url] : undefined,
     campanhaId: c.id,
     pecaId: p.id,
-    inteira: p.ajuste === 'inteira',
   }
 }
 
@@ -567,7 +565,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .player { position: fixed; inset: 0; background: var(--fundo-tela); color: #fff; display: flex; flex-direction: column; overflow: hidden; user-select: none; cursor: none; font-family: 'Inter', 'Segoe UI', system-ui, sans-serif; }
 .area { flex: 1; display: flex; min-height: 0; gap: 0; }
-.palco { flex: 1; position: relative; min-width: 0; overflow: hidden; background: var(--fundo-tela); }
+.palco { flex: 1; position: relative; min-width: 0; overflow: hidden; background: var(--fundo-tela); container-type: size; }
 .area.lateral { gap: clamp(6px, 0.8vw, 12px); padding: clamp(6px, 0.8vw, 12px); background: var(--fundo-tela); }
 .area.lateral .palco { flex: 3; border-radius: 14px; }
 .coluna { flex: 1.15; position: relative; overflow: hidden; background: #000; border-radius: 14px; box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--cor) 70%, transparent); }
@@ -577,10 +575,12 @@ onBeforeUnmount(() => {
 .fundo-peca { position: absolute; inset: -40px; background-size: cover; background-position: center; filter: blur(38px) saturate(1.35) brightness(0.55); transform: scale(1.1); }
 .fundo-peca.ambiente { filter: blur(60px) saturate(1.2) brightness(0.32); }
 
-/* ---------- moldura da peça */
+/* ---------- moldura da peça: sempre 16:9 (padrão das peças, 1920×1080), centralizada e o maior possível */
 .moldura {
+  --mx: clamp(14px, 2vw, 36px);
+  --my: clamp(12px, 2.6vh, 32px);
   position: absolute;
-  inset: clamp(12px, 2.6vh, 32px) clamp(14px, 2vw, 36px);
+  inset: var(--my) var(--mx); /* navegadores sem container queries: ocupa o palco com margem */
   z-index: 1;
   overflow: hidden;
   border-radius: clamp(14px, 1.5vw, 24px);
@@ -595,15 +595,22 @@ onBeforeUnmount(() => {
   place-items: center;
 }
 @keyframes entrar { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: none; } }
-/* no layout lateral o palco já é um cartão: a moldura ocupa tudo */
-.area.lateral .moldura { inset: 0; border-radius: inherit; }
-.midia { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center; border: 0; z-index: 1; }
-/* "Ajustar inteira": peça toda visível, sobra preenchida pelo fundo desfocado */
-.midia.inteira { object-fit: contain; filter: drop-shadow(0 12px 40px rgba(0, 0, 0, 0.45)); }
-/* coluna lateral é estreita: a peça aparece inteira para não cortar o anúncio */
-.coluna .midia { object-fit: contain; filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.45)); }
-.zoom { animation: zoom var(--dur, 15s) ease-out both; }
-@keyframes zoom { from { transform: scale(1); } to { transform: scale(1.045); } }
+@supports (width: 1cqw) {
+  .moldura {
+    inset: auto;
+    top: 50%;
+    left: 50%;
+    translate: -50% -50%;
+    aspect-ratio: 16 / 9;
+    width: min(calc(100cqw - 2 * var(--mx)), calc((100cqh - 2 * var(--my)) * 16 / 9));
+  }
+}
+/* no layout lateral o palco já é um cartão: moldura sem margem */
+.area.lateral .moldura { --mx: 0px; --my: 0px; }
+.midia { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; object-position: center; border: 0; z-index: 1; }
+/* A peça nunca é cortada: as peças são padronizadas em 1920×1080 no envio e a moldura é 16:9,
+   então encaixam exatamente. Peça antiga fora do padrão aparece inteira, com o fundo desfocado nas sobras. */
+.coluna .midia { filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.45)); }
 
 .selo-pub { position: absolute; top: clamp(10px, 2vh, 22px); left: clamp(10px, 1.6vw, 26px); z-index: 3; font-size: clamp(9px, 0.95vw, 13px); font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(255, 255, 255, 0.85); background: rgba(0, 0, 0, 0.38); backdrop-filter: blur(6px); padding: 0.35em 0.9em; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.18); }
 

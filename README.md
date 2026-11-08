@@ -102,8 +102,12 @@ e as **peças** são os criativos que giram dentro desse espaço. Trocar ou adic
   O player usa round-robin ponderado suave, que distribui de forma uniforme mesmo com poucos ciclos.
 - **Aprovação por peça:** peça nova ou com arquivo trocado volta para "aguardando" e só vai ao ar aprovada.
   Aprovar a campanha aprova junto as peças pendentes.
+- **Formato padrão 16:9 (1920×1080):** toda imagem é padronizada no envio. Já em 16:9 → só redimensiona; fora do
+  formato → abre o enquadramento (*Recortar* com arrastar/zoom, ou *Encaixar inteira* com fundo desfocado) e o arquivo
+  final sai em 1920×1080. No player a moldura é sempre 16:9, então a peça encaixa exata e **nunca é cortada na tela**.
+  Peças antigas fora do padrão têm o botão "Enquadrar em 1920×1080".
 - **Regras técnicas:** imagem fica o espaço inteiro; vídeo precisa caber no espaço (a duração é lida do arquivo
-  no envio). O painel avisa sobre peça em retrato, proporção fora de 16:9/16:10 e resolução baixa.
+  no envio) e deve ser exportado em 16:9. O painel avisa sobre resolução abaixo de 1920×1080.
 - **Período e QR por peça:** ex.: peça "Promo de sexta" só às sextas da campanha; cada peça pode levar a um link.
 - **Relatório:** exibições por peça e share real de cada criativo.
 
