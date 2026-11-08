@@ -134,11 +134,24 @@ export function conflitos(nova: CampanhaGrade, outras: CampanhaGrade[], telas: T
 
 /* ------------------------------------------------------------------ acesso ao banco */
 
-export async function cicloDoTenant(db: D1Database, tid: string): Promise<number> {
+/**
+ * Ciclo da tela (segundos) e quanto dele é comercial.
+ * conteudo_pct = parte mínima do ciclo reservada a conteúdo (ex.: 60 → só 40% do ciclo é vendável).
+ */
+export async function configCiclo(db: D1Database, tid: string) {
   const t = await db.prepare('SELECT config FROM tenants WHERE id = ?').bind(tid).first<{ config: string }>()
-  let n = NaN
-  try { n = Number(JSON.parse(t?.config || '{}').ciclo_segundos) } catch { /* padrão */ }
-  return n >= 30 && n <= 3600 ? Math.round(n) : CICLO_PADRAO
+  let cfg: Record<string, unknown> = {}
+  try { cfg = JSON.parse(t?.config || '{}') } catch { /* padrão */ }
+  const n = Number(cfg.ciclo_segundos)
+  const ciclo = n >= 30 && n <= 3600 ? Math.round(n) : CICLO_PADRAO
+  const p = Number(cfg.conteudo_pct)
+  const pct = p >= 0 && p <= 80 ? Math.round(p) : 0
+  return { ciclo, pct, capacidade: Math.max(5, Math.round((ciclo * (100 - pct)) / 100)), cfg }
+}
+
+/** Segundos vendáveis do ciclo (o que o inventário controla). */
+export async function cicloDoTenant(db: D1Database, tid: string): Promise<number> {
+  return (await configCiclo(db, tid)).capacidade
 }
 
 export async function carregarGrade(db: D1Database, tid: string) {

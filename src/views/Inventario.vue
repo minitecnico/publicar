@@ -3,7 +3,10 @@
     <div class="cabecalho-pagina">
       <div>
         <h1>Inventário</h1>
-        <p>Quanto do ciclo de anúncios ({{ inv?.ciclo ?? '…' }}s) já está vendido em cada tela e em cada hora. Use para saber o que ainda dá para vender.</p>
+        <p>
+          Quanto do espaço comercial ({{ inv?.ciclo ?? '…' }}s<template v-if="inv?.conteudo_pct"> de um ciclo de {{ inv.ciclo_total }}s, com {{ inv.conteudo_pct }}% de conteúdo</template>)
+          já está vendido em cada tela e em cada hora. Use para saber o que ainda dá para vender.
+        </p>
       </div>
       <div class="barra-ferramentas nao-imprimir">
         <label class="linha pequeno">Dia <input v-model="dia" type="date" @change="carregar" /></label>
@@ -92,7 +95,7 @@ import { data, hoje, numero } from '../format'
 import { erro } from '../toast'
 
 interface TelaInv { id: number; nome: string; tipo: string; bairro: string | null; horas: number[]; campanhas: { id: number; nome: string; segundos: number; status: string }[] }
-interface Inv { data: string; dia_semana: number; ciclo: number; telas: TelaInv[] }
+interface Inv { data: string; dia_semana: number; ciclo: number; ciclo_total?: number; conteudo_pct?: number; telas: TelaInv[] }
 
 const NOMES_DIAS = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado']
 const ESPACO = 15

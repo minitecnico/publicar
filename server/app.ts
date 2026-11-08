@@ -3,7 +3,7 @@ import { conferirSenha, emitirToken, exigirAdmin, exigirLogin, hashSenha } from 
 import { cteAudiencia, investimentoNoPeriodo, metricas, padroesAudiencia, SQL_ALCANCE, SQL_IMPACTOS } from './audiencia'
 import { crud } from './crud'
 import { novoToken, relatorioCampanha } from './relatorio'
-import { carregarGrade, cicloDoTenant, ocupacao, rodaNaTela, segundosNoCiclo, verificarCampanha } from './grade'
+import { carregarGrade, configCiclo, ocupacao, rodaNaTela, segundosNoCiclo, verificarCampanha } from './grade'
 import { enviarMidia, servirMidia } from './media'
 import { player, redirecionarQr } from './player'
 import { hoje, mesAtual, type AppEnv } from './types'
@@ -317,13 +317,16 @@ app.get('/inventario', async (c) => {
   const tid = c.get('sessao').tid
   const dia = /^\d{4}-\d{2}-\d{2}$/.test(c.req.query('data') || '') ? c.req.query('data')! : hoje()
   const dow = new Date(`${dia}T12:00:00Z`).getUTCDay()
-  const [ciclo, grade] = await Promise.all([cicloDoTenant(c.env.DB, tid), carregarGrade(c.env.DB, tid)])
+  const [cfgCiclo, grade] = await Promise.all([configCiclo(c.env.DB, tid), carregarGrade(c.env.DB, tid)])
+  const ciclo = cfgCiclo.capacidade
   const doDia = grade.campanhas.filter((cp) => (!cp.inicio || cp.inicio <= dia) && (!cp.fim || cp.fim >= dia))
   const ocup = ocupacao(grade.telas, doDia)
   return c.json({
     data: dia,
     dia_semana: dow,
     ciclo,
+    ciclo_total: cfgCiclo.ciclo,
+    conteudo_pct: cfgCiclo.pct,
     telas: grade.telas.map((t) => ({
       ...t,
       horas: ocup.get(t.id)!.slice(dow * 24, dow * 24 + 24),

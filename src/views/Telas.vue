@@ -6,7 +6,7 @@
     subtitulo="Tablets nos carros e TVs nos estabelecimentos. Abra o endereço do player na tela e ela começa a tocar."
     rotulo-novo="Nova tela"
     :campos="campos"
-    :padrao="{ tipo: 'carro', layout: 'cheia', status: 'ativa', cor_primaria: '#E9A453', cor_fundo: '#1E1E1E', conteudo: [] }"
+    :padrao="{ tipo: 'carro', layout: 'cheia', status: 'ativa', cor_primaria: '#E9A453', cor_fundo: '#1E1E1E', conteudo: [], widgets: ['clima', 'cotacao', 'noticias', 'esportes', 'curiosidades'] }"
   >
     <template #ferramentas>
       <span class="selo verde"><span class="ponto" /> {{ onlineCount }} online</span>
@@ -117,7 +117,14 @@ const campos: Campo[] = [
   { key: 'cor_fundo', label: 'Cor de fundo', tipo: 'cor' },
   { key: 'logo_url', label: 'Logo exibido no rodapé', tipo: 'midia', dica: 'Opcional. Se vazio, usa o logo da Publicar.' },
   { key: 'ticker', label: 'Faixa de recados (rodapé)', tipo: 'textarea', dica: 'Um recado por linha. Ex.: Wi-Fi: senha 1234 · Hoje: corte + barba R$ 50' },
-  { key: 'conteudo', label: 'Entretenimento da tela', tipo: 'conteudo' },
+  {
+    key: 'widgets',
+    label: 'Conteúdo automático',
+    tipo: 'checks',
+    opcoes: op(['clima', 'Clima'], ['cotacao', 'Dólar e euro'], ['noticias', 'Notícias da cidade'], ['esportes', 'Esportes'], ['curiosidades', 'Você sabia?']),
+    dica: 'Quadros leves gerados sozinhos (poucos KB, funcionam offline). Cidade e patrocinadores em Configurações.',
+  },
+  { key: 'conteudo', label: 'Conteúdo próprio (promoções, vídeos, avisos)', tipo: 'conteudo' },
   { key: 'ultimo_ping', label: 'Conexão', lista: true, mostrarSe: () => false },
   { key: 'status', label: 'Status', tipo: 'select', lista: true, selo: corStatus, opcoes: op(['ativa', 'Ativa'], ['inativa', 'Inativa']) },
 ]

@@ -24,6 +24,32 @@
         </label>
       </div>
 
+      <h2 class="secao">Programação e conteúdo</h2>
+      <p class="mudo pequeno" style="margin: 4px 0 12px">
+        Conteúdo prende a atenção da plateia e valoriza o anúncio. Recomendado: ciclo de 300s com 60% de conteúdo (120s vendáveis = 8 espaços de 15s).
+      </p>
+      <div class="grade-form">
+        <label class="campo">Conteúdo mínimo no ciclo (%)
+          <input v-model.number="cfg.config.conteudo_pct" type="number" min="0" max="80" step="5" placeholder="0" />
+          <span class="dica">
+            Vendável por ciclo: <strong>{{ vendavel }}s</strong> de {{ cfg.config.ciclo_segundos || 120 }}s. O resto é conteúdo (clima, notícias, promoções…).
+          </span>
+        </label>
+        <label class="campo">Cidade (clima e notícias)
+          <input v-model="cfg.config.cidade" type="text" placeholder="Ex.: Feira de Santana - BA" />
+          <span class="dica">Nome da cidade e UF. As manchetes são da imprensa local, atualizadas a cada 30 min.</span>
+        </label>
+      </div>
+      <h3 class="sub">Patrocínio dos quadros</h3>
+      <p class="mudo pequeno" style="margin: 2px 0 10px">Ex.: "Clima oferecido por Farmácia X". Aparece no rodapé do quadro, com o logo. Vazio = sem patrocínio.</p>
+      <div class="patrocinios">
+        <div v-for="w in QUADROS" :key="w.valor" class="patrocinio">
+          <strong>{{ w.rotulo }}</strong>
+          <input v-model="patrocinio(w.valor).nome" type="text" placeholder="Nome do patrocinador" />
+          <MediaInput v-model="patrocinio(w.valor).logo_url" tipo="imagem" />
+        </div>
+      </div>
+
       <h2 class="secao">Audiência (padrões)</h2>
       <p class="mudo pequeno" style="margin: 4px 0 12px">
         Usados nas telas que não têm números próprios. Metodologia: público no momento = pessoas por dia ÷ horas ligada × minutos diante
@@ -109,11 +135,12 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { api } from '../api'
 import { comPadrao, type PadroesAudiencia } from '../audiencia'
 import { definirModulos, sessao } from '../auth'
 import Icone from '../components/Icone.vue'
+import MediaInput from '../components/MediaInput.vue'
 import Modal from '../components/Modal.vue'
 import { avisar, erro } from '../toast'
 
@@ -127,6 +154,25 @@ const MODULOS = [
 
 const cfg = reactive<{ nome: string; modulos: string[]; config: Record<string, any> }>({ nome: '', modulos: [], config: {} })
 const aud = reactive<PadroesAudiencia>(comPadrao(null))
+const QUADROS = [
+  { valor: 'clima', rotulo: 'Clima' },
+  { valor: 'cotacao', rotulo: 'Dólar e euro' },
+  { valor: 'noticias', rotulo: 'Notícias' },
+  { valor: 'esportes', rotulo: 'Esportes' },
+  { valor: 'curiosidades', rotulo: 'Você sabia?' },
+]
+/** Garante um registro de patrocínio por quadro (criado no carregamento, nunca durante a renderização). */
+function garantirPatrocinios() {
+  const p = (cfg.config.patrocinios ||= {})
+  for (const q of QUADROS) p[q.valor] ||= { nome: '', logo_url: '' }
+}
+garantirPatrocinios()
+const patrocinio = (w: string): { nome: string; logo_url: string } => cfg.config.patrocinios[w]
+const vendavel = computed(() => {
+  const ciclo = Number(cfg.config.ciclo_segundos) || 120
+  const pct = Math.min(80, Math.max(0, Number(cfg.config.conteudo_pct) || 0))
+  return Math.round((ciclo * (100 - pct)) / 100)
+})
 const usuarios = ref<any[]>([])
 const salvando = ref(false)
 const novoUsuario = ref(false)
@@ -145,6 +191,7 @@ async function carregar() {
     cfg.modulos = r.modulos || []
     cfg.config = r.config || {}
     Object.assign(aud, comPadrao(cfg.config.audiencia))
+    garantirPatrocinios()
     if (sessao.usuario?.papel === 'admin') usuarios.value = await api.get('/usuarios')
   } catch (e) {
     erro(e)
@@ -198,6 +245,9 @@ onMounted(carregar)
 .modulo strong { display: block; }
 .modulo span { font-size: 0.8rem; color: var(--texto-2); }
 .sobre p { margin: 6px 0 0; }
+.sub { margin: 16px 0 0; font-size: 0.95rem; }
+.patrocinios { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+.patrocinio { border: 1px solid var(--borda); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
 .aud { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .aud fieldset { border: 1px solid var(--borda); border-radius: 10px; padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 10px; margin: 0; }
 .aud legend { font-weight: 700; padding: 0 6px; }

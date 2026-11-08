@@ -43,9 +43,9 @@ export const RECURSOS: Record<string, Recurso> = {
     tabela: 'telas',
     colunas: [
       'nome', 'tipo', 'cliente_id', 'motorista_id', 'bairro', 'layout', 'cor_primaria', 'cor_fundo', 'logo_url', 'ticker', 'conteudo', 'status',
-      'corridas_dia', 'passageiros_corrida', 'fluxo_dia', 'permanencia_min', 'horas_operacao',
+      'corridas_dia', 'passageiros_corrida', 'fluxo_dia', 'permanencia_min', 'horas_operacao', 'widgets',
     ],
-    json: ['conteudo'],
+    json: ['conteudo', 'widgets'],
     obrigatorias: ['nome'],
     aoCriar: (d) => ({ ...d, codigo: codigoTela() }),
   },

@@ -1,5 +1,6 @@
 import { Hono, type Context } from 'hono'
-import { cicloDoTenant, lista, type Janela } from './grade'
+import { obterConteudo } from './conteudo'
+import { configCiclo, lista, type Janela } from './grade'
 import { hoje, type AppEnv } from './types'
 
 /** Rotas públicas usadas pelas telas (tablets e TVs). Identificação pelo código da tela. */
@@ -13,6 +14,8 @@ export const player = new Hono<AppEnv>()
  * e envia a prova de exibição num intervalo adaptativo, calculado para a rede inteira caber no orçamento.
  */
 export const PROGRAMACAO_MIN = 15
+/** Quadros de conteúdo automático disponíveis. */
+export const WIDGETS = ['clima', 'cotacao', 'noticias', 'esportes', 'curiosidades']
 /** Gravações/dia reservadas para a prova de exibição (o resto fica para sinal de vida e para o painel). */
 const ORCAMENTO_EXIBICOES = 40000
 
@@ -36,6 +39,7 @@ interface Tela {
   ticker: string | null
   conteudo: string
   status: string
+  widgets: string
 }
 
 async function buscarTela(db: D1Database, codigo: string) {
@@ -124,6 +128,14 @@ player.get('/:codigo', async (c) => {
   let conteudo: unknown[] = []
   try { conteudo = JSON.parse(tela.conteudo || '[]') } catch { /* vazio */ }
 
+  // conteúdo automático (clima, cotações, manchetes) + patrocínios dos quadros
+  const ciclo = await configCiclo(c.env.DB, tela.tenant_id)
+  const widgets = lista<string>(tela.widgets).filter((w) => WIDGETS.includes(w))
+  const cidade = typeof ciclo.cfg.cidade === 'string' && ciclo.cfg.cidade.trim() ? ciclo.cfg.cidade.trim() : null
+  const auto = widgets.length
+    ? await obterConteudo(c.env.DB, tela.tenant_id, cidade, (p) => c.executionCtx.waitUntil(p)).catch(() => null)
+    : null
+
   return c.json({
     tela: {
       id: tela.id,
@@ -136,9 +148,12 @@ player.get('/:codigo', async (c) => {
       logo_url: tela.logo_url,
       ticker: tela.ticker,
       conteudo,
+      widgets,
     },
+    conteudo_auto: auto,
+    patrocinios: ciclo.cfg.patrocinios && typeof ciclo.cfg.patrocinios === 'object' ? ciclo.cfg.patrocinios : {},
     campanhas,
-    ciclo: await cicloDoTenant(c.env.DB, tela.tenant_id),
+    ciclo: ciclo.ciclo, // ciclo inteiro: a parte não vendida é preenchida com conteúdo
     programacao_min: PROGRAMACAO_MIN,
     envio_min: intervaloExibicoes(telasAtivas, campanhas.length),
     gerado_em: new Date().toISOString(),

@@ -54,10 +54,54 @@
                   <p>{{ atual.texto }}</p>
                 </div>
 
+                <div v-else-if="atual.tipo.startsWith('w-')" class="quadro" :class="atual.tipo">
+                  <template v-if="atual.tipo === 'w-clima' && auto?.clima">
+                    <span class="quadro-titulo">Tempo agora{{ auto.local?.nome ? ` em ${auto.local.nome}` : '' }}</span>
+                    <div class="clima-agora">
+                      <span class="clima-icone">{{ tempoInfo(auto.clima.codigo, auto.clima.dia).icone }}</span>
+                      <strong>{{ auto.clima.temp }}°</strong>
+                      <span class="clima-desc">{{ tempoInfo(auto.clima.codigo, auto.clima.dia).texto }}</span>
+                    </div>
+                    <div class="clima-dias">
+                      <div v-for="d in auto.clima.dias" :key="d.data" class="clima-dia">
+                        <span>{{ nomeDia(d.data) }}</span>
+                        <b>{{ tempoInfo(d.codigo, true).icone }}</b>
+                        <span>{{ d.min }}° / <strong>{{ d.max }}°</strong></span>
+                        <em>{{ d.chuva }}% chuva</em>
+                      </div>
+                    </div>
+                  </template>
+                  <template v-else-if="atual.tipo === 'w-cotacao' && auto?.cotacao">
+                    <span class="quadro-titulo">Cotação de hoje</span>
+                    <div class="moedas">
+                      <div v-for="m in auto.cotacao.moedas" :key="m.codigo" class="moeda">
+                        <span>{{ m.nome }}</span>
+                        <strong>{{ m.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) }}</strong>
+                        <em :class="m.variacao >= 0 ? 'sobe' : 'desce'">{{ m.variacao >= 0 ? '▲' : '▼' }} {{ Math.abs(m.variacao).toLocaleString('pt-BR', { maximumFractionDigits: 2 }) }}%</em>
+                      </div>
+                    </div>
+                  </template>
+                  <template v-else-if="atual.tipo === 'w-noticias' || atual.tipo === 'w-esportes'">
+                    <span class="quadro-titulo">{{ atual.tipo === 'w-esportes' ? 'Esportes' : `Notícias${auto?.local?.nome ? ' de ' + auto.local.nome : ''}` }}</span>
+                    <ul class="manchetes">
+                      <li v-for="n in atual.lista" :key="n.titulo"><p>{{ n.titulo }}</p><span>{{ n.fonte }}</span></li>
+                    </ul>
+                  </template>
+                  <template v-else-if="atual.tipo === 'w-curiosidade'">
+                    <span class="quadro-titulo">Você sabia?</span>
+                    <p class="curiosidade">{{ atual.texto }}</p>
+                  </template>
+                  <div v-if="patrocinioDe(atual.tipo)" class="patrocinio">
+                    <span>Oferecido por</span>
+                    <img v-if="patrocinioDe(atual.tipo)!.logo_url" :src="fonte(patrocinioDe(atual.tipo)!.logo_url)" alt="" />
+                    <strong>{{ patrocinioDe(atual.tipo)!.nome }}</strong>
+                  </div>
+                </div>
+
                 <span v-if="atual.campanhaId" class="selo-pub">Publicidade</span>
 
                 <!-- faixa inferior: chamada + QR alinhados -->
-                <div v-if="(atual.texto && atual.tipo !== 'aviso') || atual.qr" class="faixa-info">
+                <div v-if="!atual.tipo.startsWith('w-') && ((atual.texto && atual.tipo !== 'aviso') || atual.qr)" class="faixa-info">
                   <div v-if="atual.texto && atual.tipo !== 'aviso'" class="chamada">{{ atual.texto }}</div>
                   <span v-else class="espaco" />
                   <div v-if="atual.qr" class="qr">
@@ -127,6 +171,7 @@
 
 <script setup lang="ts">
 import QRCode from 'qrcode'
+import { CURIOSIDADES } from '../curiosidades'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -136,9 +181,19 @@ interface Peca { id: number; tipo: string; url: string; duracao: number | null; 
 /** duracao = espaço comprado; as peças giram dentro dele */
 interface Campanha { id: number; nome: string; duracao: number; prioridade: number; rotacao?: string; pecas?: Peca[]; dias_semana?: number[]; horarios?: Janela[] }
 interface Conteudo { tipo: string; url?: string; duracao?: number; titulo?: string; texto?: string }
+interface Manchete { titulo: string; fonte: string }
+interface ConteudoAuto {
+  local?: { nome: string } | null
+  clima?: { temp: number; codigo: number; dia: boolean; dias: { data: string; max: number; min: number; chuva: number; codigo: number }[] } | null
+  cotacao?: { moedas: { codigo: string; nome: string; valor: number; variacao: number }[] } | null
+  noticias?: Manchete[] | null
+  esportes?: Manchete[] | null
+}
 interface Dados {
-  tela: { id: number; nome: string; codigo: string; tipo: string; layout: string; cor_primaria: string; cor_fundo: string; logo_url: string | null; ticker: string | null; conteudo: Conteudo[] }
+  tela: { id: number; nome: string; codigo: string; tipo: string; layout: string; cor_primaria: string; cor_fundo: string; logo_url: string | null; ticker: string | null; conteudo: Conteudo[]; widgets?: string[] }
   campanhas: Campanha[]
+  conteudo_auto?: ConteudoAuto | null
+  patrocinios?: Record<string, { nome?: string; logo_url?: string }>
   /** ciclo de anúncios em segundos: a sobra é preenchida com entretenimento */
   ciclo?: number
   /** minutos entre buscas da programação (cada busca também é o sinal de vida) */
@@ -146,9 +201,9 @@ interface Dados {
   /** minutos entre envios da prova de exibição (o servidor ajusta ao tamanho da rede) */
   envio_min?: number
 }
-interface Item { chave: string; tipo: string; url?: string; duracao: number; texto?: string | null; titulo?: string; qr?: string; campanhaId?: number; pecaId?: number }
+interface Item { chave: string; tipo: string; url?: string; duracao: number; texto?: string | null; titulo?: string; qr?: string; campanhaId?: number; pecaId?: number; lista?: Manchete[] }
 
-const VERSAO = '0.7.0'
+const VERSAO = '0.8.0'
 const route = useRoute()
 const router = useRouter()
 
@@ -217,6 +272,7 @@ async function prepararMidias() {
     for (const c of dados.value.campanhas) for (const p of c.pecas || []) if (p.url && p.tipo !== 'youtube') urls.add(p.url)
     for (const c of dados.value.tela.conteudo || []) if (c.url && (c.tipo === 'video' || c.tipo === 'imagem')) urls.add(c.url)
     if (dados.value.tela.logo_url) urls.add(dados.value.tela.logo_url)
+    for (const p of Object.values(dados.value.patrocinios || {})) if (p?.logo_url) urls.add(p.logo_url)
     const cache = await caches.open(CACHE_MIDIA)
     for (const url of urls) {
       if (locais[url]) continue
@@ -294,11 +350,41 @@ const anuncios = computed<Item[]>(() => {
   // espalha as repetições para não tocar a mesma peça em sequência
   return lista.sort((a, b) => Number(a.chave.split('-')[1]) - Number(b.chave.split('-')[1]))
 })
-const entretenimento = computed<Item[]>(() =>
-  (dados.value?.tela.conteudo || [])
+const auto = computed(() => dados.value?.conteudo_auto || null)
+
+/** Quadros automáticos da tela (clima, cotação, manchetes, curiosidades), na ordem em que vão se alternar. */
+const quadros = computed<Item[]>(() => {
+  const w = dados.value?.tela.widgets || []
+  const a = auto.value
+  const out: Item[] = []
+  const paginas = (l: Manchete[] | null | undefined, tipo: string) => {
+    const lista = (l || []).slice(0, 9)
+    for (let i = 0; i < lista.length; i += 3) out.push({ chave: `${tipo}${i}`, tipo, duracao: 15, lista: lista.slice(i, i + 3) })
+  }
+  const curiosidades = [...CURIOSIDADES].sort(() => Math.random() - 0.5).slice(0, 3)
+  if (w.includes('clima') && a?.clima) out.push({ chave: 'w-clima', tipo: 'w-clima', duracao: 12 })
+  if (w.includes('noticias')) paginas(a?.noticias, 'w-noticias')
+  if (w.includes('curiosidades')) out.push({ chave: 'w-cur0', tipo: 'w-curiosidade', duracao: 10, texto: curiosidades[0] })
+  if (w.includes('cotacao') && a?.cotacao?.moedas.length) out.push({ chave: 'w-cotacao', tipo: 'w-cotacao', duracao: 10 })
+  if (w.includes('esportes')) paginas(a?.esportes, 'w-esportes')
+  if (w.includes('curiosidades')) curiosidades.slice(1).forEach((t, i) => out.push({ chave: `w-cur${i + 1}`, tipo: 'w-curiosidade', duracao: 10, texto: t }))
+  // manchetes ficam em ordem; os demais quadros se espalham entre elas
+  return out
+})
+
+/** Conteúdo da tela: próprio (promoções, vídeos, avisos) intercalado com os quadros automáticos. */
+const entretenimento = computed<Item[]>(() => {
+  const proprio: Item[] = (dados.value?.tela.conteudo || [])
     .filter((c) => c.url || c.texto)
-    .map((c, i) => ({ chave: `e${i}`, tipo: c.tipo, url: c.url, duracao: c.duracao || 30, texto: null, titulo: c.titulo, ...(c.tipo === 'aviso' ? { texto: c.texto } : {}) })),
-)
+    .map((c, i) => ({ chave: `e${i}`, tipo: c.tipo, url: c.url, duracao: c.duracao || 30, texto: null, titulo: c.titulo, ...(c.tipo === 'aviso' ? { texto: c.texto } : {}) }))
+  const q = quadros.value
+  const out: Item[] = []
+  for (let i = 0; i < Math.max(proprio.length, q.length); i++) {
+    if (proprio[i]) out.push(proprio[i])
+    if (q[i]) out.push(q[i])
+  }
+  return out
+})
 const layoutLateral = computed(() => dados.value?.tela.layout === 'lateral' && entretenimento.value.length > 0 && anuncios.value.length > 0)
 
 /* Rodízio das peças: round-robin ponderado suave (distribui de forma uniforme e previsível;
@@ -558,7 +644,31 @@ function fundoPeca(item: Item) {
   return { backgroundImage: 'radial-gradient(circle at 30% 20%, color-mix(in srgb, var(--cor) 35%, transparent), transparent 60%), radial-gradient(circle at 80% 90%, color-mix(in srgb, var(--cor) 20%, transparent), transparent 55%)', filter: 'none', transform: 'none' }
 }
 /** Barra de progresso só onde a duração é conhecida (anúncios e imagens/avisos). */
-const mostraProgresso = (item: Item) => !!item.campanhaId || item.tipo === 'imagem' || item.tipo === 'aviso'
+const mostraProgresso = (item: Item) => !!item.campanhaId || item.tipo === 'imagem' || item.tipo === 'aviso' || item.tipo.startsWith('w-')
+
+/* ---------- quadros automáticos */
+const QUADRO_DO_TIPO: Record<string, string> = { 'w-clima': 'clima', 'w-cotacao': 'cotacao', 'w-noticias': 'noticias', 'w-esportes': 'esportes', 'w-curiosidade': 'curiosidades' }
+function patrocinioDe(tipo: string) {
+  const p = dados.value?.patrocinios?.[QUADRO_DO_TIPO[tipo]]
+  return p && (p.nome || '').trim() ? p : null
+}
+/** Códigos de tempo da OMM (Open-Meteo) em português. */
+function tempoInfo(c: number, dia: boolean) {
+  if (c === 0) return { texto: 'Céu limpo', icone: dia ? '☀️' : '🌙' }
+  if (c <= 2) return { texto: 'Parcialmente nublado', icone: dia ? '⛅' : '☁️' }
+  if (c === 3) return { texto: 'Nublado', icone: '☁️' }
+  if (c === 45 || c === 48) return { texto: 'Neblina', icone: '🌫️' }
+  if (c >= 51 && c <= 57) return { texto: 'Garoa', icone: '🌦️' }
+  if (c >= 61 && c <= 67) return { texto: 'Chuva', icone: '🌧️' }
+  if (c >= 71 && c <= 77) return { texto: 'Neve', icone: '❄️' }
+  if (c >= 80 && c <= 82) return { texto: 'Pancadas de chuva', icone: '🌦️' }
+  if (c >= 95) return { texto: 'Trovoadas', icone: '⛈️' }
+  return { texto: 'Tempo instável', icone: '🌤️' }
+}
+function nomeDia(d: string) {
+  if (d === hojeBR()) return 'Hoje'
+  return new Date(`${d}T12:00:00-03:00`).toLocaleDateString('pt-BR', { weekday: 'long', timeZone: 'America/Sao_Paulo' }).replace('-feira', '')
+}
 
 function embedYoutube(url?: string) {
   const id = (url || '').match(/(?:youtu\.be\/|v=|embed\/|shorts\/)([\w-]{11})/)?.[1]
@@ -689,6 +799,34 @@ onBeforeUnmount(() => {
 .relogio { flex-shrink: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1; background: var(--cor); color: #1e1e1e; border-radius: 10px; height: 76%; padding: 0 clamp(10px, 1.2vw, 18px); }
 .relogio strong { font-weight: 800; font-size: clamp(18px, 3.3vh, 34px); font-variant-numeric: tabular-nums; }
 .relogio span { font-size: clamp(9px, 1.35vh, 13px); font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; margin-top: 2px; opacity: 0.8; }
+
+/* ---------- quadros de conteúdo */
+.quadro { position: relative; z-index: 1; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; gap: 3.5cqh; padding: 6% 7%; background: radial-gradient(circle at 15% 10%, color-mix(in srgb, var(--cor) 26%, transparent), transparent 55%), linear-gradient(160deg, #1b1b1b, #0d0d0d); color: #fff; container-type: size; }
+.quadro-titulo { align-self: flex-start; background: var(--cor); color: #1e1e1e; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; font-size: clamp(14px, 3.4cqh, 30px); padding: 0.35em 0.9em; border-radius: 999px; }
+.clima-agora { display: flex; align-items: center; gap: 3cqw; }
+.clima-icone { font-size: 20cqh; line-height: 1; }
+.clima-agora strong { font-size: 24cqh; font-weight: 800; line-height: 1; letter-spacing: -0.03em; }
+.clima-desc { font-size: 6cqh; font-weight: 600; color: rgba(255, 255, 255, 0.85); }
+.clima-dias { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2cqw; }
+.clima-dia { background: rgba(255, 255, 255, 0.07); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 14px; padding: 2cqh 2cqw; display: flex; flex-direction: column; gap: 0.6cqh; font-size: 4cqh; }
+.clima-dia > span:first-child { text-transform: capitalize; font-weight: 700; color: var(--cor); }
+.clima-dia b { font-size: 7cqh; font-weight: 400; }
+.clima-dia em { font-style: normal; font-size: 3.4cqh; color: rgba(255, 255, 255, 0.7); }
+.moedas { display: grid; grid-template-columns: 1fr 1fr; gap: 3cqw; }
+.moeda { background: rgba(255, 255, 255, 0.07); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 18px; padding: 4cqh 3cqw; display: flex; flex-direction: column; gap: 1cqh; }
+.moeda span { font-size: 5cqh; font-weight: 600; color: rgba(255, 255, 255, 0.8); }
+.moeda strong { font-size: 13cqh; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.moeda em { font-style: normal; font-size: 4.5cqh; font-weight: 700; }
+.moeda .sobe { color: #6fd28b; }
+.moeda .desce { color: #ff8a7a; }
+.manchetes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3cqh; }
+.manchetes li { border-left: 0.5cqw solid var(--cor); padding-left: 2cqw; }
+.manchetes p { margin: 0; font-size: 5.6cqh; font-weight: 700; line-height: 1.18; }
+.manchetes span { font-size: 3.2cqh; color: rgba(255, 255, 255, 0.6); text-transform: uppercase; letter-spacing: 0.05em; }
+.curiosidade { margin: 0; font-size: 9cqh; font-weight: 800; line-height: 1.12; letter-spacing: -0.01em; max-width: 92%; }
+.patrocinio { position: absolute; right: 3%; bottom: 5%; display: flex; align-items: center; gap: 10px; background: #fff; color: #1e1e1e; border-radius: 999px; padding: 0.4em 1em 0.4em 0.9em; font-size: clamp(11px, 2.8cqh, 22px); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); }
+.patrocinio span { font-size: 0.8em; color: #5f5f5a; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700; }
+.patrocinio img { height: 1.8em; width: auto; max-width: 6em; object-fit: contain; }
 
 .ocioso { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: #fff; gap: 8px; padding: 20px; background: radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--cor) 22%, var(--fundo-tela)), var(--fundo-tela) 65%); }
 .logo-ocioso { width: min(34vw, 340px); margin-bottom: 18px; background: #fff; padding: clamp(12px, 2vw, 26px); border-radius: 22px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45); }
