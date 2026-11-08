@@ -20,7 +20,6 @@
       </span>
       <div class="mudo pequeno">
         {{ tempoDesde(linha.ultimo_ping) }}
-        <a v-if="posicao(linha)" :href="`https://www.openstreetmap.org/?mlat=${posicao(linha)!.lat}&mlon=${posicao(linha)!.lng}#map=16/${posicao(linha)!.lat}/${posicao(linha)!.lng}`" target="_blank" rel="noopener">· ver no mapa</a>
       </div>
     </template>
     <template #celula-audiencia="{ linha }">
@@ -79,15 +78,7 @@ const padroes = ref(comPadrao(null))
 onMounted(async () => {
   try { padroes.value = comPadrao((await api.get('/config')).config?.audiencia) } catch { /* usa os padrões */ }
 })
-/** Última posição enviada pelo GPS da tela (fica no sinal de vida). */
-function posicao(l: Record<string, any>): { lat: number; lng: number } | null {
-  try {
-    const i = typeof l.ultima_info === 'string' ? JSON.parse(l.ultima_info) : l.ultima_info
-    return i && Number.isFinite(i.lat) && Number.isFinite(i.lng) && i.lat !== null ? { lat: i.lat, lng: i.lng } : null
-  } catch {
-    return null
-  }
-}
+
 const instalando = ref<Record<string, any> | null>(null)
 const qr = ref('')
 const origem = location.origin
@@ -115,7 +106,6 @@ const campos: Campo[] = [
     dica: 'Carro: duração média da corrida. Estabelecimento: tempo médio de espera.',
   },
   { key: 'horas_operacao', label: 'Horas ligada por dia', tipo: 'numero', placeholder: (f) => `padrão: ${f.tipo === 'carro' ? padroes.value.carro.horas : padroes.value.estabelecimento.horas}` },
-  { key: 'local', label: 'Localização do estabelecimento', tipo: 'geo', semRaio: true, mostrarSe: (f) => f.tipo === 'estabelecimento' },
 
   {
     key: 'layout',

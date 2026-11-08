@@ -132,13 +132,12 @@ import { useRoute, useRouter } from 'vue-router'
 
 /* ------------------------------------------------------------ tipos */
 interface Janela { ini: string; fim: string }
-interface Geo { lat: number; lng: number; raio_km?: number }
 interface Peca { id: number; tipo: string; url: string; duracao: number | null; texto: string | null; peso: number; qr_url: string | null; ajuste?: string }
 /** duracao = espaço comprado; as peças giram dentro dele */
-interface Campanha { id: number; nome: string; duracao: number; prioridade: number; rotacao?: string; pecas?: Peca[]; dias_semana?: number[]; horarios?: Janela[]; geo?: Geo | null }
+interface Campanha { id: number; nome: string; duracao: number; prioridade: number; rotacao?: string; pecas?: Peca[]; dias_semana?: number[]; horarios?: Janela[] }
 interface Conteudo { tipo: string; url?: string; duracao?: number; titulo?: string; texto?: string }
 interface Dados {
-  tela: { id: number; nome: string; codigo: string; tipo: string; layout: string; cor_primaria: string; cor_fundo: string; logo_url: string | null; ticker: string | null; conteudo: Conteudo[]; local?: Geo | null }
+  tela: { id: number; nome: string; codigo: string; tipo: string; layout: string; cor_primaria: string; cor_fundo: string; logo_url: string | null; ticker: string | null; conteudo: Conteudo[] }
   campanhas: Campanha[]
   /** ciclo de anúncios em segundos: a sobra é preenchida com entretenimento */
   ciclo?: number
@@ -149,7 +148,7 @@ interface Dados {
 }
 interface Item { chave: string; tipo: string; url?: string; duracao: number; texto?: string | null; titulo?: string; qr?: string; campanhaId?: number; pecaId?: number }
 
-const VERSAO = '0.5.0'
+const VERSAO = '0.6.0'
 const route = useRoute()
 const router = useRouter()
 
@@ -188,8 +187,6 @@ async function carregar() {
   try {
     // a busca da programação também é o sinal de vida da tela
     const q = new URLSearchParams({ v: VERSAO, r: `${screen.width}x${screen.height}` })
-    const p = posicaoAtual()
-    if (p) { q.set('lat', p.lat.toFixed(5)); q.set('lng', p.lng.toFixed(5)) }
     const res = await fetch(`/api/player/${codigo.value}?${q}`, { cache: 'no-store' })
     const corpo = await res.json()
     if (!res.ok) {
@@ -285,72 +282,10 @@ function noAr(c: Campanha) {
   })
 }
 
-/* ------------------------------------------------------------ localização (GPS) e cerca geográfica */
-interface Posicao { lat: number; lng: number; t: number }
-const VALIDADE_POS = 10 * 60 * 1000 // posição mais velha que isso não vale para cerca
-const chavePos = () => `publicar.pos.${codigo.value}`
-const chaveTraj = () => `publicar.traj.${codigo.value}`
-let ultimaPos: Posicao | null = null
-try { ultimaPos = JSON.parse(localStorage.getItem(chavePos()) || 'null') } catch { /* sem posição */ }
-/** Posição usada pela programação; só muda a cada 200 m ou 1 min, para não refazer a lista a todo instante. */
-const posicao = ref<Posicao | null>(ultimaPos)
-let vigia: number | null = null
-
-/** Estabelecimento com endereço cadastrado usa o local fixo; o resto usa o GPS. */
-function posicaoAtual(): { lat: number; lng: number } | null {
-  const local = dados.value?.tela.tipo === 'estabelecimento' ? dados.value.tela.local : null
-  if (local) return local
-  const p = ultimaPos
-  return p && Date.now() - p.t < VALIDADE_POS ? p : null
-}
-
-function distanciaKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
-  const r = Math.PI / 180
-  const dLat = (b.lat - a.lat) * r
-  const dLng = (b.lng - a.lng) * r
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLng / 2) ** 2
-  return 12742 * Math.asin(Math.sqrt(h))
-}
-
-/** Campanha com cerca só toca dentro do raio. Sem posição conhecida, não toca (o anunciante pagou pela região). */
-function dentroDaCerca(c: Campanha) {
-  if (!c.geo || !c.geo.raio_km) return true
-  void posicao.value // dependência reativa
-  const p = posicaoAtual()
-  return !!p && distanciaKm(p, c.geo) <= c.geo.raio_km
-}
-
-function iniciarGps() {
-  if (vigia != null || !('geolocation' in navigator)) return
-  if (dados.value?.tela.tipo === 'estabelecimento' && dados.value.tela.local) return
-  vigia = navigator.geolocation.watchPosition(
-    (g) => {
-      const nova = { lat: g.coords.latitude, lng: g.coords.longitude, t: Date.now() }
-      ultimaPos = nova
-      localStorage.setItem(chavePos(), JSON.stringify(nova))
-      const atual = posicao.value
-      if (!atual || Date.now() - atual.t > 60000 || distanciaKm(atual, nova) > 0.2) posicao.value = nova
-    },
-    () => { /* sem permissão ou sem sinal: segue sem localização */ },
-    { enableHighAccuracy: true, maximumAge: 30000, timeout: 60000 },
-  )
-}
-
-/** A cada minuto, soma 1 minuto na quadrícula (~1 km) onde a tela está. Vai junto com a prova de exibição. */
-function registrarTrajeto() {
-  const p = posicaoAtual()
-  if (!p) return
-  let traj: Record<string, number> = {}
-  try { traj = JSON.parse(localStorage.getItem(chaveTraj()) || '{}') } catch { /* recomeça */ }
-  const k = `${hojeBR()}|${Math.round(p.lat * 100)}|${Math.round(p.lng * 100)}`
-  traj[k] = (traj[k] || 0) + 1
-  localStorage.setItem(chaveTraj(), JSON.stringify(traj))
-}
-
 /* ------------------------------------------------------------ programação */
 const anuncios = computed<Item[]>(() => {
   const lista: Item[] = []
-  for (const c of (dados.value?.campanhas || []).filter((c) => noAr(c) && dentroDaCerca(c) && c.pecas?.length)) {
+  for (const c of (dados.value?.campanhas || []).filter((c) => noAr(c) && c.pecas?.length)) {
     // cada inserção é um espaço da campanha; a peça é escolhida na hora de tocar (rodízio)
     for (let r = 0; r < Math.max(1, Math.min(c.prioridade || 1, 5)); r++) {
       lista.push({ chave: `c${c.id}-${r}`, tipo: 'espaco', duracao: Math.max(5, c.duracao || 15), campanhaId: c.id })
@@ -489,7 +424,7 @@ function registrarExibicao(campanhaId: number, pecaId?: number) {
   localStorage.setItem(chaveExib(), JSON.stringify(fila))
 }
 
-/** Envia a fila em partes (o servidor aceita até 150 itens e 285 quadrículas por vez) e desconta só o que foi aceito. */
+/** Envia a fila em partes (o servidor aceita até 150 itens por vez) e desconta só o que foi aceito. */
 async function enviarExibicoes() {
   for (let rodada = 0; rodada < 5; rodada++) {
     const fila = lerFila()
@@ -497,15 +432,9 @@ async function enviarExibicoes() {
       const [cid, dia] = k.split('|')
       return { campanha_id: Number(cid), dia, total: c.total, pecas: c.pecas }
     })
-    let traj: Record<string, number> = {}
-    try { traj = JSON.parse(localStorage.getItem(chaveTraj()) || '{}') } catch { /* vazio */ }
-    const trajeto = Object.entries(traj).slice(0, 285).map(([k, minutos]) => {
-      const [dia, la, ln] = k.split('|')
-      return { dia, lat: Number(la) / 100, lng: Number(ln) / 100, minutos }
-    })
-    if (!itens.length && !trajeto.length) return
+    if (!itens.length) return
     try {
-      const res = await fetch(`/api/player/${codigo.value}/exibicoes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ itens, trajeto }), keepalive: true })
+      const res = await fetch(`/api/player/${codigo.value}/exibicoes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ itens }), keepalive: true })
       if (!res.ok) return
     } catch {
       return // sem rede: tenta no próximo ciclo
@@ -524,14 +453,6 @@ async function enviarExibicoes() {
       if (c.total <= 0) delete agora[k]
     }
     localStorage.setItem(chaveExib(), JSON.stringify(agora))
-    let trajAgora: Record<string, number> = {}
-    try { trajAgora = JSON.parse(localStorage.getItem(chaveTraj()) || '{}') } catch { /* vazio */ }
-    for (const t of trajeto) {
-      const k = `${t.dia}|${Math.round(t.lat * 100)}|${Math.round(t.lng * 100)}`
-      trajAgora[k] = (trajAgora[k] || 0) - t.minutos
-      if (trajAgora[k] <= 0) delete trajAgora[k]
-    }
-    localStorage.setItem(chaveTraj(), JSON.stringify(trajAgora))
   }
 }
 
@@ -562,7 +483,6 @@ async function iniciar() {
   sessionStorage.setItem('publicar.iniciado', '1')
   try { await document.documentElement.requestFullscreen?.() } catch { /* sem permissão */ }
   try { wakeLock = await (navigator as any).wakeLock?.request('screen') } catch { /* não suportado */ }
-  iniciarGps()
 }
 
 function tocarTela() {
@@ -626,9 +546,6 @@ onMounted(async () => {
   // passados 10 s sem toque (instalação em quiosque), some o aviso e segue tocando sem som
   setTimeout(() => (mostrarInicio.value = false), 10000)
   intervalos.push(window.setInterval(atualizarRelogio, 15000))
-  // localização: cerca geográfica e mapa de calor (o navegador pede permissão uma vez)
-  iniciarGps()
-  intervalos.push(window.setInterval(registrarTrajeto, 60000))
   // intervalos definidos pelo servidor para a rede inteira caber no plano grátis (requisições e gravações no D1)
   agendar('programacao', carregar, () => dados.value?.programacao_min || 15)
   agendar('exibicoes', enviarExibicoes, () => dados.value?.envio_min || 60)
@@ -645,7 +562,6 @@ onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', aoOcultar)
   window.removeEventListener('online', carregar)
   enviarExibicoes()
-  if (vigia != null) navigator.geolocation.clearWatch(vigia)
   wakeLock?.release().catch(() => {})
 })
 </script>

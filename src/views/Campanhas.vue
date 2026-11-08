@@ -25,7 +25,6 @@
             <span class="mudo pequeno">{{ textoPecas(linha) }}</span>
             <span v-if="pendentes(linha)" class="selo laranja">{{ pendentes(linha) }} aguardando aprovação</span>
             <span v-if="linha.status === 'ativa' && !aprovadas(linha)" class="selo vermelho">sem peça aprovada: não vai ao ar</span>
-            <span v-if="linha.geo && linha.geo.raio_km" class="selo azul" title="Só exibe dentro do raio">cerca {{ linha.geo.raio_km < 1 ? linha.geo.raio_km * 1000 + ' m' : linha.geo.raio_km + ' km' }}</span>
           </div>
         </div>
       </div>
@@ -86,7 +85,6 @@ const campos: Campo[] = [
   { key: 'horarios', label: 'Faixas de horário', tipo: 'horarios', lista: true },
   { key: 'tipo_tela', label: 'Onde exibir', tipo: 'select', opcoes: op(['todas', 'Carros e estabelecimentos'], ['carro', 'Só carros de app'], ['estabelecimento', 'Só estabelecimentos']), lista: true },
   { key: 'telas_alvo', label: 'Telas específicas', tipo: 'telas' },
-  { key: 'geo', label: 'Cerca geográfica (geofence)', tipo: 'geo' },
   {
     key: 'status',
     label: 'Status da campanha',

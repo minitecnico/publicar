@@ -66,15 +66,6 @@
           <div class="kpi"><span>QR lidos</span><strong>{{ numero(detalhe.resumo.qr) }}</strong><em>{{ detalhe.resumo.impactos ? `${((detalhe.resumo.qr / detalhe.resumo.impactos) * 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} a cada mil impactos` : '' }}</em></div>
         </div>
 
-        <div class="bloco">
-          <h3>Onde a campanha passou</h3>
-          <MapaCalor v-if="detalhe.mapa.length" :pontos="detalhe.mapa" :cerca="detalhe.geo" />
-          <p v-else class="mudo pequeno sem-mapa">
-            Ainda sem trajeto. O mapa aparece quando as telas dos carros enviam a localização (permita o acesso à localização no tablet).
-            Telas de estabelecimento ficam no endereço cadastrado.
-          </p>
-        </div>
-
         <div v-if="detalhe.por_peca?.length" class="bloco">
           <h3>Por peça</h3>
           <table class="tabela">
@@ -129,7 +120,6 @@
               {{ detalhe.metodologia.estabelecimento.fluxo }} pessoas/dia, {{ detalhe.metodologia.estabelecimento.permanencia }} min de espera,
               {{ detalhe.metodologia.estabelecimento.horas }} h/dia.
             </li>
-            <li><strong>Mapa</strong>: as exibições de cada carro em cada dia são distribuídas pelas regiões (~1 km) onde ele passou, na proporção do tempo em cada uma.</li>
           </ul>
         </details>
       </div>
@@ -141,7 +131,6 @@
 import { computed, onMounted, ref } from 'vue'
 import { api } from '../api'
 import Icone from '../components/Icone.vue'
-import MapaCalor from '../components/MapaCalor.vue'
 import Modal from '../components/Modal.vue'
 import { corStatus } from '../campos'
 import { data, diasAtras, hoje, moeda, numero } from '../format'
@@ -191,7 +180,6 @@ tfoot td { border-top: 2px solid var(--borda); background: #fbfaf8; }
 .kpi.destaque { background: var(--laranja-claro); border-color: #f3d3a6; }
 .bloco { margin-top: 16px; }
 .bloco h3 { margin-bottom: 6px; }
-.sem-mapa { border: 2px dashed var(--borda); border-radius: 10px; padding: 16px; margin: 0; }
 .duas { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
 .peca-nome { display: flex; align-items: center; gap: 10px; }
 .mini { width: 48px; height: 27px; border-radius: 5px; background: #1e1e1e; overflow: hidden; display: grid; place-items: center; color: #fff; font-size: 0.65rem; flex-shrink: 0; }

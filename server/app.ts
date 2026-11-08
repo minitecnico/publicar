@@ -184,7 +184,7 @@ app.get('/relatorios/campanha/:id', async (c) => {
   const db = c.env.DB
   const padroes = await padroesAudiencia(db, tid)
   const cte = cteAudiencia(padroes, tid)
-  const [porDia, porTela, linhasPecas, pecas, camp, mapa] = await db.batch([
+  const [porDia, porTela, linhasPecas, pecas, camp] = await db.batch([
     db.prepare(
       `${cte.sql} SELECT e.dia, SUM(e.total) AS total, SUM(e.qr) AS qr, ${SQL_IMPACTOS} AS impactos, ${SQL_ALCANCE} AS alcance
          FROM exibicoes e LEFT JOIN aud a ON a.id = e.tela_id
@@ -197,22 +197,7 @@ app.get('/relatorios/campanha/:id', async (c) => {
     ).bind(...cte.binds, tid, id, de, ate),
     db.prepare('SELECT pecas FROM exibicoes WHERE tenant_id = ? AND campanha_id = ? AND dia BETWEEN ? AND ?').bind(tid, id, de, ate),
     db.prepare('SELECT id, nome, midia_tipo, midia_url, status FROM pecas WHERE tenant_id = ? AND campanha_id = ? ORDER BY ordem, id').bind(tid, id),
-    db.prepare('SELECT valor, inicio, fim, geo FROM campanhas WHERE id = ? AND tenant_id = ?').bind(id, tid),
-    // mapa de calor: as exibições de cada tela/dia são distribuídas pelas quadrículas onde o carro passou,
-    // na proporção dos minutos em cada uma
-    db.prepare(
-      `WITH tot AS (
-         SELECT tr.tela_id, tr.dia, SUM(tr.minutos) AS m FROM trajetos tr
-          WHERE tr.dia BETWEEN ? AND ? AND tr.tela_id IN (SELECT id FROM telas WHERE tenant_id = ?)
-          GROUP BY tr.tela_id, tr.dia)
-       SELECT tr.lat_i, tr.lng_i, SUM(e.total * tr.minutos * 1.0 / tot.m) AS exibicoes, SUM(tr.minutos) AS minutos
-         FROM trajetos tr
-         JOIN tot ON tot.tela_id = tr.tela_id AND tot.dia = tr.dia
-         JOIN exibicoes e ON e.tela_id = tr.tela_id AND e.dia = tr.dia AND e.campanha_id = ? AND e.tenant_id = ?
-        WHERE tr.dia BETWEEN ? AND ?
-        GROUP BY tr.lat_i, tr.lng_i
-        ORDER BY exibicoes DESC LIMIT 2000`,
-    ).bind(de, ate, tid, id, tid, de, ate),
+    db.prepare('SELECT valor, inicio, fim FROM campanhas WHERE id = ? AND tenant_id = ?').bind(id, tid),
   ])
   // soma a contagem por peça guardada em JSON em cada linha agregada
   const somaPecas: Record<string, number> = {}
@@ -227,9 +212,7 @@ app.get('/relatorios/campanha/:id', async (c) => {
   }))
   const dias = porDia.results as { total: number; qr: number; impactos: number; alcance: number }[]
   const soma = (k: 'total' | 'qr' | 'impactos' | 'alcance') => dias.reduce((s, d) => s + Number(d[k] || 0), 0)
-  const cp = (camp.results[0] || {}) as { valor: number; inicio: string | null; fim: string | null; geo: string | null }
-  let geo = null
-  try { geo = cp.geo ? JSON.parse(cp.geo) : null } catch { /* sem cerca */ }
+  const cp = (camp.results[0] || {}) as { valor: number; inicio: string | null; fim: string | null }
   return c.json({
     de,
     ate,
@@ -237,8 +220,6 @@ app.get('/relatorios/campanha/:id', async (c) => {
     por_dia: dias,
     por_tela: porTela.results,
     por_peca: porPeca,
-    mapa: (mapa.results as { lat_i: number; lng_i: number; exibicoes: number; minutos: number }[]).map((m) => ({ lat: m.lat_i / 100, lng: m.lng_i / 100, exibicoes: Math.round(m.exibicoes), minutos: m.minutos })),
-    geo,
     metodologia: padroes,
   })
 })
