@@ -35,14 +35,18 @@
       <h2>Repasses do mês</h2>
       <div class="cartao tabela-wrap">
         <table class="tabela">
-          <thead><tr><th>Motorista</th><th>Nível</th><th>Telas ativas</th><th>Chave Pix</th><th class="num">Repasse</th></tr></thead>
+          <thead><tr><th>Motorista</th><th>Nível</th><th>Modelo</th><th class="num">Horas ligada</th><th>Chave Pix</th><th class="num">Repasse</th></tr></thead>
           <tbody>
             <tr v-for="r in f.repasses" :key="r.id">
-              <td><strong>{{ r.nome }}</strong></td>
+              <td><strong>{{ r.nome }}</strong> <span class="mudo pequeno">{{ r.telas }} tela(s)</span></td>
               <td><span class="selo" style="text-transform: capitalize">{{ r.nivel }}</span></td>
-              <td>{{ r.telas }}</td>
+              <td>
+                <template v-if="r.modelo_repasse === 'hora'">{{ moeda(r.valor_hora) }}/h<span v-if="r.bonus_pct" class="selo verde">+{{ r.bonus_pct }}%</span></template>
+                <template v-else>Fixo</template>
+              </td>
+              <td class="num">{{ r.horas.toLocaleString('pt-BR') }} h</td>
               <td>{{ r.pix || '—' }}</td>
-              <td class="num">{{ moeda(r.repasse_fixo) }}</td>
+              <td class="num"><strong>{{ moeda(r.valor) }}</strong></td>
             </tr>
           </tbody>
         </table>

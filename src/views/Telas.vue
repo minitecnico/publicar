@@ -18,8 +18,13 @@
       <span class="selo" :class="online(linha.ultimo_ping) ? 'verde' : 'vermelho'" :title="tempoDesde(linha.ultimo_ping)">
         <span class="ponto" /> {{ online(linha.ultimo_ping) ? 'Online' : 'Offline' }}
       </span>
-      <div class="mudo pequeno">
-        {{ tempoDesde(linha.ultimo_ping) }}
+      <div class="mudo pequeno">{{ tempoDesde(linha.ultimo_ping) }}</div>
+      <div v-if="saude(linha)" class="saude">
+        <span v-if="saude(linha)!.bateria != null" :class="{ fraca: saude(linha)!.bateria! < 20 && !saude(linha)!.carregando }" title="Bateria">
+          🔋 {{ saude(linha)!.bateria }}%{{ saude(linha)!.carregando ? ' ⚡' : '' }}
+        </span>
+        <span v-if="saude(linha)!.rede" title="Rede">{{ String(saude(linha)!.rede).toUpperCase() }}</span>
+        <span v-if="saude(linha)!.versao" title="Versão do player">v{{ saude(linha)!.versao }}</span>
       </div>
     </template>
     <template #celula-audiencia="{ linha }">
@@ -75,6 +80,15 @@ import { avisar } from '../toast'
 
 const crud = ref<InstanceType<typeof CrudPage>>()
 const padroes = ref(comPadrao(null))
+/** Saúde do aparelho enviada no último sinal de vida. */
+function saude(l: Record<string, any>): { bateria?: number | null; carregando?: boolean | null; rede?: string | null; versao?: string | null } | null {
+  try {
+    const i = typeof l.ultima_info === 'string' ? JSON.parse(l.ultima_info) : l.ultima_info
+    return i && typeof i === 'object' ? i : null
+  } catch {
+    return null
+  }
+}
 onMounted(async () => {
   try { padroes.value = comPadrao((await api.get('/config')).config?.audiencia) } catch { /* usa os padrões */ }
 })
@@ -147,6 +161,8 @@ async function copiar() {
 .instalar ol { padding-left: 18px; margin: 6px 0 12px; color: var(--texto-2); }
 .endereco code { display: block; background: #f4f3ef; padding: 8px 10px; border-radius: 6px; word-break: break-all; margin-bottom: 8px; }
 @media (max-width: 640px) { .instalar { grid-template-columns: 1fr; } }
+.saude { display: flex; gap: 8px; flex-wrap: wrap; font-size: 0.75rem; color: var(--texto-2); margin-top: 2px; }
+.saude .fraca { color: var(--vermelho); font-weight: 700; }
 .previa-aud { display: flex; flex-direction: column; gap: 3px; border: 1px solid #c9dcf0; background: var(--azul-claro); border-radius: 8px; padding: 12px 14px; }
 .previa-aud strong { color: var(--azul); }
 </style>

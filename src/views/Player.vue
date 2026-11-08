@@ -204,7 +204,7 @@ interface Dados {
 }
 interface Item { chave: string; tipo: string; url?: string; duracao: number; texto?: string | null; titulo?: string; qr?: string; campanhaId?: number; pecaId?: number; lista?: Manchete[]; cta?: string | null }
 
-const VERSAO = '0.8.0'
+const VERSAO = '0.9.0'
 const route = useRoute()
 const router = useRouter()
 
@@ -243,6 +243,11 @@ async function carregar() {
   try {
     // a busca da programação também é o sinal de vida da tela
     const q = new URLSearchParams({ v: VERSAO, r: `${screen.width}x${screen.height}` })
+    // saúde do aparelho no sinal de vida (o brilho da tela não é acessível pelo navegador)
+    if (bateria.nivel != null) q.set('b', String(bateria.nivel))
+    if (bateria.carregando != null) q.set('c', bateria.carregando ? '1' : '0')
+    const rede = (navigator as any).connection?.effectiveType
+    if (rede) q.set('n', String(rede))
     const res = await fetch(`/api/player/${codigo.value}?${q}`, { cache: 'no-store' })
     const corpo = await res.json()
     if (!res.ok) {
@@ -541,6 +546,32 @@ function registrarExibicao(campanhaId: number, pecaId?: number) {
   localStorage.setItem(chaveExib(), JSON.stringify(fila))
 }
 
+/* ---------- bateria e minutos ativos (base do repasse por hora ao motorista) */
+const bateria = reactive<{ nivel: number | null; carregando: boolean | null }>({ nivel: null, carregando: null })
+async function lerBateria() {
+  try {
+    const b = await (navigator as any).getBattery?.()
+    if (!b) return
+    const atualizar = () => { bateria.nivel = Math.round(b.level * 100); bateria.carregando = !!b.charging }
+    atualizar()
+    b.addEventListener?.('levelchange', atualizar)
+    b.addEventListener?.('chargingchange', atualizar)
+  } catch { /* navegador sem a API */ }
+}
+const chaveAtivo = () => `publicar.ativo.${codigo.value}`
+/** Conta 1 minuto quando a tela está de fato exibindo (visível, sem o aviso de início, com programação). */
+function contarMinutoAtivo() {
+  if (document.visibilityState !== 'visible' || mostrarInicio.value || !dados.value) return
+  let m: Record<string, number> = {}
+  try { m = JSON.parse(localStorage.getItem(chaveAtivo()) || '{}') } catch { /* recomeça */ }
+  const d = hojeBR()
+  m[d] = (m[d] || 0) + 1
+  localStorage.setItem(chaveAtivo(), JSON.stringify(m))
+}
+function lerAtivo(): Record<string, number> {
+  try { return JSON.parse(localStorage.getItem(chaveAtivo()) || '{}') } catch { return {} }
+}
+
 /** Envia a fila em partes (o servidor aceita até 150 itens por vez) e desconta só o que foi aceito. */
 async function enviarExibicoes() {
   for (let rodada = 0; rodada < 5; rodada++) {
@@ -549,12 +580,21 @@ async function enviarExibicoes() {
       const [cid, dia] = k.split('|')
       return { campanha_id: Number(cid), dia, total: c.total, pecas: c.pecas, horas: c.horas }
     })
-    if (!itens.length) return
+    const ativo = rodada === 0 ? Object.entries(lerAtivo()).slice(0, 15).map(([dia, minutos]) => ({ dia, minutos })) : []
+    if (!itens.length && !ativo.length) return
     try {
-      const res = await fetch(`/api/player/${codigo.value}/exibicoes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ itens }), keepalive: true })
+      const res = await fetch(`/api/player/${codigo.value}/exibicoes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ itens, ativo }), keepalive: true })
       if (!res.ok) return
     } catch {
       return // sem rede: tenta no próximo ciclo
+    }
+    if (ativo.length) {
+      const m = lerAtivo()
+      for (const a of ativo) {
+        m[a.dia] = (m[a.dia] || 0) - a.minutos
+        if (m[a.dia] <= 0) delete m[a.dia]
+      }
+      localStorage.setItem(chaveAtivo(), JSON.stringify(m))
     }
     // desconta só o que foi enviado (pode ter entrado exibição nova durante o envio)
     const agora = lerFila()
@@ -693,7 +733,8 @@ onMounted(async () => {
   avancarLateral()
   // passados 10 s sem toque (instalação em quiosque), some o aviso e segue tocando sem som
   setTimeout(() => (mostrarInicio.value = false), 10000)
-  intervalos.push(window.setInterval(atualizarRelogio, 15000))
+  intervalos.push(window.setInterval(atualizarRelogio, 15000), window.setInterval(contarMinutoAtivo, 60000))
+  lerBateria()
   // intervalos definidos pelo servidor para a rede inteira caber no plano grátis (requisições e gravações no D1)
   agendar('programacao', carregar, () => dados.value?.programacao_min || 15)
   agendar('exibicoes', enviarExibicoes, () => dados.value?.envio_min || 60)

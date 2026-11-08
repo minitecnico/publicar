@@ -53,7 +53,16 @@ player.get('/:codigo', async (c) => {
 
   const dia = hoje()
   // sinal de vida junto com a busca da programação (economiza uma requisição e metade das gravações)
-  const info = JSON.stringify({ versao: c.req.query('v') || null, tela: c.req.query('r') || null }).slice(0, 500)
+  // sinal de vida: versão do player, resolução, bateria (%), carregando (1/0) e tipo de rede
+  const q = (k: string) => (c.req.query(k) || '').slice(0, 20) || null
+  const bat = Number(c.req.query('b'))
+  const info = JSON.stringify({
+    versao: q('v'),
+    tela: q('r'),
+    bateria: Number.isFinite(bat) && bat >= 0 && bat <= 100 ? Math.round(bat) : null,
+    carregando: c.req.query('c') === '1' ? true : c.req.query('c') === '0' ? false : null,
+    rede: q('n'),
+  }).slice(0, 500)
   const [, contagem] = await c.env.DB.batch([
     c.env.DB.prepare("UPDATE telas SET ultimo_ping = datetime('now'), ultima_info = ? WHERE id = ?").bind(info, tela.id),
     c.env.DB.prepare("SELECT COUNT(*) AS n FROM telas WHERE status = 'ativa'"),
@@ -188,6 +197,7 @@ player.post('/:codigo/exibicoes', async (c) => {
   if (!tela) return c.json({ erro: 'Tela não encontrada' }, 404)
   const corpo = await c.req.json<{
     itens?: { campanha_id: number; dia: string; total: number; pecas?: Record<string, number>; horas?: Record<string, number> }[]
+    ativo?: { dia: string; minutos: number }[]
   }>()
   const validos = (corpo.itens || [])
     .filter((i) => Number.isInteger(i.campanha_id) && DIA.test(i.dia) && i.total > 0 && i.total < 100000)
@@ -233,6 +243,15 @@ player.post('/:codigo/exibicoes', async (c) => {
     }
   }
 
+  // minutos em que a tela esteve exibindo (base do repasse por hora)
+  const ativo = (corpo.ativo || []).filter((a) => DIA.test(a.dia) && a.minutos > 0 && a.minutos <= 1440).slice(0, 15)
+  for (const a of ativo) {
+    stmts.push(
+      db.prepare('INSERT INTO atividade (tela_id, dia, minutos) VALUES (?, ?, ?) ON CONFLICT (tela_id, dia) DO UPDATE SET minutos = MIN(1440, minutos + excluded.minutos)')
+        .bind(tela.id, a.dia, Math.round(a.minutos)),
+    )
+  }
+
   if (stmts.length) await db.batch(stmts)
-  return c.json({ ok: true, gravados: validos.length })
+  return c.json({ ok: true, gravados: validos.length, ativo: ativo.length })
 })

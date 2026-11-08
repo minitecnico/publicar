@@ -36,7 +36,7 @@ export const RECURSOS: Record<string, Recurso> = {
   },
   motoristas: {
     tabela: 'motoristas',
-    colunas: ['nome', 'cpf', 'telefone', 'pix', 'veiculo', 'placa', 'apps', 'repasse_fixo', 'nivel', 'status'],
+    colunas: ['nome', 'cpf', 'telefone', 'pix', 'veiculo', 'placa', 'apps', 'repasse_fixo', 'nivel', 'status', 'modelo_repasse', 'valor_hora'],
     obrigatorias: ['nome'],
   },
   telas: {
@@ -86,7 +86,7 @@ export const RECURSOS: Record<string, Recurso> = {
 }
 
 /** Números opcionais: campo vazio no formulário = usa o padrão. */
-const NUMERICAS_NULAVEIS = ['corridas_dia', 'passageiros_corrida', 'fluxo_dia', 'permanencia_min', 'horas_operacao', 'valor']
+const NUMERICAS_NULAVEIS = ['corridas_dia', 'passageiros_corrida', 'fluxo_dia', 'permanencia_min', 'horas_operacao', 'valor', 'valor_hora']
 
 function deserializar(r: Recurso, row: Record<string, unknown>) {
   for (const k of r.json || []) {

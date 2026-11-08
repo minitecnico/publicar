@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { conferirSenha, emitirToken, exigirAdmin, exigirLogin, hashSenha } from './auth'
 import { cteAudiencia, investimentoNoPeriodo, metricas, padroesAudiencia, SQL_ALCANCE, SQL_IMPACTOS } from './audiencia'
+import { cron, enviarAlerta } from './alertas'
 import { crud } from './crud'
 import { novoToken, relatorioCampanha } from './relatorio'
 import { carregarGrade, configCiclo, ocupacao, rodaNaTela, segundosNoCiclo, verificarCampanha } from './grade'
@@ -94,6 +95,7 @@ app.get('/publico/campanha/:token', async (c) => {
 app.route('/player', player)
 app.route('/r', redirecionarQr)
 app.route('/publico/loja', loja)
+app.route('/cron', cron)
 app.get('/media/*', servirMidia)
 
 /* -------------------------------------------------------------- protegidas */
@@ -226,6 +228,13 @@ app.post('/campanhas/:id/link', async (c) => {
   return c.json({ token })
 })
 
+// Envia uma mensagem de teste com a configuração de alertas (sem salvar).
+app.post('/alertas/teste', exigirAdmin, async (c) => {
+  const cfg = await c.req.json<Record<string, unknown>>()
+  const ok = await enviarAlerta(cfg, '✅ Publicar: alertas de tela offline configurados.')
+  return ok ? c.json({ ok: true }) : c.json({ erro: 'Não foi possível enviar. Confira o número e a apikey do CallMeBot (ou o webhook).' }, 400)
+})
+
 // Link da loja para validar cupons (sem login).
 app.post('/campanhas/:id/link-loja', async (c) => {
   const tid = c.get('sessao').tid
@@ -252,20 +261,35 @@ app.get('/financeiro', async (c) => {
   const tid = c.get('sessao').tid
   const mes = c.req.query('mes') || mesAtual()
   const db = c.env.DB
-  const [receitas, lanc, repasses] = await db.batch([
+  const [receitas, lanc, repasses, tenant] = await db.batch([
     db.prepare("SELECT COALESCE(SUM(valor), 0) AS v, COUNT(*) AS n FROM faturas WHERE tenant_id = ? AND status = 'paga' AND substr(pago_em, 1, 7) = ?").bind(tid, mes),
     db.prepare('SELECT * FROM lancamentos WHERE tenant_id = ? AND substr(data, 1, 7) = ? ORDER BY data DESC').bind(tid, mes),
     db.prepare(
-      `SELECT m.id, m.nome, m.pix, m.repasse_fixo, m.nivel, COUNT(t.id) AS telas
+      `SELECT m.id, m.nome, m.pix, m.repasse_fixo, m.nivel, m.modelo_repasse, m.valor_hora,
+              COUNT(DISTINCT t.id) AS telas,
+              COALESCE((SELECT SUM(a.minutos) FROM atividade a JOIN telas t2 ON t2.id = a.tela_id
+                         WHERE t2.motorista_id = m.id AND substr(a.dia, 1, 7) = ?), 0) AS minutos
          FROM motoristas m JOIN telas t ON t.motorista_id = m.id AND t.status = 'ativa'
         WHERE m.tenant_id = ? AND m.status = 'ativo' GROUP BY m.id ORDER BY m.nome`,
-    ).bind(tid),
+    ).bind(mes, tid),
+    db.prepare('SELECT config FROM tenants WHERE id = ?').bind(tid),
   ])
   const lancs = lanc.results as { tipo: string; valor: number }[]
   const entradas = lancs.filter((l) => l.tipo === 'entrada').reduce((s, l) => s + Number(l.valor), 0)
   const saidas = lancs.filter((l) => l.tipo === 'saida').reduce((s, l) => s + Number(l.valor), 0)
-  const rep = repasses.results as { repasse_fixo: number }[]
-  const totalRepasses = rep.reduce((s, r) => s + Number(r.repasse_fixo), 0)
+  // repasse: fixo, ou horas de tela ligada × valor/hora com bônus do nível (incentiva manter o tablet ligado)
+  let bonus: Record<string, number> = { bronze: 0, prata: 10, ouro: 20 }
+  try {
+    const b = JSON.parse(((tenant.results[0] || {}) as { config: string }).config || '{}').bonus_nivel
+    if (b && typeof b === 'object') bonus = { ...bonus, ...b }
+  } catch { /* padrão */ }
+  const rep = (repasses.results as { repasse_fixo: number; nivel: string; modelo_repasse: string; valor_hora: number | null; minutos: number }[]).map((r) => {
+    const horas = Math.round((Number(r.minutos) / 60) * 10) / 10
+    const pct = Number(bonus[r.nivel]) || 0
+    const valor = r.modelo_repasse === 'hora' ? Math.round(horas * (Number(r.valor_hora) || 0) * (1 + pct / 100) * 100) / 100 : Number(r.repasse_fixo) || 0
+    return { ...r, horas, bonus_pct: r.modelo_repasse === 'hora' ? pct : 0, valor }
+  })
+  const totalRepasses = rep.reduce((s, r) => s + r.valor, 0)
   const rec = (receitas.results[0] || {}) as { v: number; n: number }
   return c.json({
     mes,

@@ -1,0 +1,19 @@
+name: Alertas de telas offline
+
+# A cada 15 min confere telas sem sinal e avisa por WhatsApp (configuração em Configurações → Alertas).
+# O GitHub pode atrasar execuções agendadas em alguns minutos; e pausa agendamentos de repositórios
+# sem atividade há 60 dias (basta reativar em Actions).
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Verificar telas offline
+        env:
+          SITE: ${{ vars.SITE_URL || format('https://{0}.pages.dev', vars.PAGES_PROJECT || 'publicar1') }}
+        run: curl -fsS -X POST "$SITE/api/cron/alertas" --max-time 60

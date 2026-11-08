@@ -50,6 +50,33 @@
         </div>
       </div>
 
+      <h2 class="secao">Alertas de tela offline (WhatsApp)</h2>
+      <p class="mudo pequeno" style="margin: 4px 0 12px">
+        Tela apagada é dinheiro perdido. O sistema confere a cada 15 min e avisa uma vez por queda, só no horário de operação, e avisa quando a tela volta.
+        Envio gratuito pelo <a href="https://www.callmebot.com/blog/free-api-whatsapp-messages/" target="_blank" rel="noopener">CallMeBot</a>:
+        adicione o número dele no seu WhatsApp, mande "I allow callmebot to send me messages" e cole aqui a apikey que ele responder.
+      </p>
+      <div class="grade-form">
+        <label class="campo check-linha"><input v-model="alertas.ativo" type="checkbox" /> Alertas ligados</label>
+        <label class="campo">Avisar após (minutos sem sinal)<input v-model.number="alertas.minutos" type="number" min="15" max="240" step="5" /></label>
+        <label class="campo">Seu WhatsApp<input v-model="alertas.telefone" type="tel" placeholder="(75) 99999-0000" /></label>
+        <label class="campo">Apikey do CallMeBot<input v-model="alertas.apikey" type="text" autocomplete="off" /></label>
+        <label class="campo">Operação começa<input v-model="alertas.inicio" type="time" /></label>
+        <label class="campo">Operação termina<input v-model="alertas.fim" type="time" /></label>
+        <label class="campo inteira">Webhook (opcional)
+          <input v-model="alertas.webhook" type="url" placeholder="https://… recebe POST {texto}" />
+          <span class="dica">Para integrar com outro sistema (Z-API, n8n, Make…).</span>
+        </label>
+      </div>
+      <div class="linha" style="margin-top: 10px"><button type="button" class="btn pequeno" @click="testarAlerta">Enviar mensagem de teste</button></div>
+
+      <h3 class="sub">Bônus do repasse por hora (por nível do motorista)</h3>
+      <div class="grade-form bonus">
+        <label class="campo">Bronze (%)<input v-model.number="bonus.bronze" type="number" min="0" max="100" /></label>
+        <label class="campo">Prata (%)<input v-model.number="bonus.prata" type="number" min="0" max="100" /></label>
+        <label class="campo">Ouro (%)<input v-model.number="bonus.ouro" type="number" min="0" max="100" /></label>
+      </div>
+
       <h2 class="secao">Audiência (padrões)</h2>
       <p class="mudo pequeno" style="margin: 4px 0 12px">
         Usados nas telas que não têm números próprios. Metodologia: público no momento = pessoas por dia ÷ horas ligada × minutos diante
@@ -154,6 +181,17 @@ const MODULOS = [
 
 const cfg = reactive<{ nome: string; modulos: string[]; config: Record<string, any> }>({ nome: '', modulos: [], config: {} })
 const aud = reactive<PadroesAudiencia>(comPadrao(null))
+const ALERTA_PADRAO = { ativo: false, minutos: 30, telefone: '', apikey: '', inicio: '07:00', fim: '22:00', webhook: '' }
+const alertas = reactive({ ...ALERTA_PADRAO })
+const bonus = reactive({ bronze: 0, prata: 10, ouro: 20 })
+async function testarAlerta() {
+  try {
+    await api.post('/alertas/teste', { ...alertas })
+    avisar('Mensagem de teste enviada: confira seu WhatsApp')
+  } catch (e) {
+    erro(e)
+  }
+}
 const QUADROS = [
   { valor: 'clima', rotulo: 'Clima' },
   { valor: 'cotacao', rotulo: 'Dólar e euro' },
@@ -191,6 +229,8 @@ async function carregar() {
     cfg.modulos = r.modulos || []
     cfg.config = r.config || {}
     Object.assign(aud, comPadrao(cfg.config.audiencia))
+    Object.assign(alertas, ALERTA_PADRAO, cfg.config.alertas || {})
+    Object.assign(bonus, { bronze: 0, prata: 10, ouro: 20 }, cfg.config.bonus_nivel || {})
     garantirPatrocinios()
     if (sessao.usuario?.papel === 'admin') usuarios.value = await api.get('/usuarios')
   } catch (e) {
@@ -202,6 +242,8 @@ async function salvar() {
   salvando.value = true
   try {
     cfg.config.audiencia = JSON.parse(JSON.stringify(aud))
+    cfg.config.alertas = { ...alertas }
+    cfg.config.bonus_nivel = { ...bonus }
     await api.put('/config', cfg)
     definirModulos([...cfg.modulos])
     avisar('Configurações salvas')
@@ -245,7 +287,10 @@ onMounted(carregar)
 .modulo strong { display: block; }
 .modulo span { font-size: 0.8rem; color: var(--texto-2); }
 .sobre p { margin: 6px 0 0; }
-.sub { margin: 16px 0 0; font-size: 0.95rem; }
+.sub { margin: 16px 0 8px; font-size: 0.95rem; }
+.check-linha { flex-direction: row; align-items: center; gap: 8px; }
+.check-linha input { width: auto; }
+.bonus { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .patrocinios { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
 .patrocinio { border: 1px solid var(--borda); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
 .aud { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
