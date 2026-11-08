@@ -198,6 +198,8 @@ async function carregar() {
 function preencher(dados: Record<string, any>) {
   for (const k of Object.keys(form)) delete form[k]
   Object.assign(form, JSON.parse(JSON.stringify(dados)))
+  // selects têm opções em texto; números vindos do banco (ex.: 1/0) viram texto para casar com a opção
+  for (const c of props.campos) if (c.tipo === 'select' && typeof form[c.key] === 'number') form[c.key] = String(form[c.key])
 }
 
 function novo(extra: Record<string, any> = {}) {

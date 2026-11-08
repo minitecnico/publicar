@@ -42,7 +42,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { api } from '../api'
 import CrudPage from '../components/CrudPage.vue'
 import Icone from '../components/Icone.vue'
 import OcupacaoPrevia from '../components/OcupacaoPrevia.vue'
@@ -51,6 +53,31 @@ import { data, resumoVeiculacao } from '../format'
 import { avisar, erro } from '../toast'
 
 const crud = ref<InstanceType<typeof CrudPage>>()
+const route = useRoute()
+const router = useRouter()
+
+/** Vindo de Pacotes: abre a campanha já preenchida com o pacote (telas, horários, espaço e preço). */
+onMounted(async () => {
+  const id = Number(route.query.pacote)
+  if (!id) return
+  router.replace({ query: {} })
+  try {
+    const p = await api.get<Record<string, any>>(`/pacotes/${id}`)
+    const filtraBairro = (p.bairros || []).length > 0
+    crud.value?.novo({
+      nome: `${p.nome} · `,
+      duracao: p.duracao,
+      prioridade: p.prioridade,
+      tipo_tela: p.tipo_tela,
+      telas_alvo: filtraBairro ? p.metricas?.telas_ids || [] : [],
+      dias_semana: p.dias_semana || [],
+      horarios: p.horarios || [],
+      valor: p.metricas?.preco_sugerido ?? p.preco_base,
+    })
+  } catch (e) {
+    erro(e)
+  }
+})
 
 const campos: Campo[] = [
   { key: 'nome', label: 'Nome da campanha', obrigatorio: true, lista: true },

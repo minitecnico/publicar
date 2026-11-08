@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { conferirSenha, emitirToken, exigirAdmin, exigirLogin, hashSenha } from './auth'
 import { cteAudiencia, investimentoNoPeriodo, metricas, padroesAudiencia, SQL_ALCANCE, SQL_IMPACTOS } from './audiencia'
 import { cron, enviarAlerta } from './alertas'
+import { pacotesSugeridos } from './pacotes'
 import { crud } from './crud'
 import { novoToken, relatorioCampanha } from './relatorio'
 import { carregarGrade, configCiclo, ocupacao, rodaNaTela, segundosNoCiclo, verificarCampanha } from './grade'
@@ -226,6 +227,24 @@ app.post('/campanhas/:id/link', async (c) => {
   const token = novoToken()
   await c.env.DB.prepare('UPDATE campanhas SET token_publico = ? WHERE id = ? AND tenant_id = ?').bind(token, id, tid).run()
   return c.json({ token })
+})
+
+// Cria os pacotes sugeridos (Cidade, Bairro, Horário nobre) se a empresa ainda não tem nenhum.
+app.post('/pacotes/sugeridos', async (c) => {
+  const tid = c.get('sessao').tid
+  const db = c.env.DB
+  const n = await db.prepare('SELECT COUNT(*) AS n FROM pacotes WHERE tenant_id = ?').bind(tid).first<{ n: number }>()
+  if (n?.n) return c.json({ criados: 0 })
+  const top = await db
+    .prepare("SELECT bairro, COUNT(*) AS n FROM telas WHERE tenant_id = ? AND status = 'ativa' AND TRIM(COALESCE(bairro, '')) <> '' GROUP BY bairro ORDER BY n DESC LIMIT 1")
+    .bind(tid)
+    .first<{ bairro: string }>()
+  const stmt = db.prepare(
+    'INSERT INTO pacotes (tenant_id, nome, descricao, tipo_tela, bairros, duracao, prioridade, dias_semana, horarios, preco_base, dinamico) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+  )
+  const lista = pacotesSugeridos(top?.bairro?.trim() || null)
+  await db.batch(lista.map((p) => stmt.bind(tid, p.nome, p.descricao, p.tipo_tela, p.bairros, p.duracao, p.prioridade, p.dias_semana, p.horarios, p.preco_base, p.dinamico)))
+  return c.json({ criados: lista.length })
 })
 
 // Envia uma mensagem de teste com a configuração de alertas (sem salvar).

@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { mensagemConflito, verificarCampanha } from './grade'
+import { anexarMetricasPacotes } from './pacotes'
 import { anexarPecas, limparPecas, salvarPecas, validarPecas, type Peca } from './pecas'
 import type { AppEnv } from './types'
 
@@ -72,6 +73,13 @@ export const RECURSOS: Record<string, Recurso> = {
       if ('pecas' in corpo) await salvarPecas(db, tid, id, limparPecas(corpo.pecas))
     },
     aoLer: anexarPecas,
+  },
+  pacotes: {
+    tabela: 'pacotes',
+    colunas: ['nome', 'descricao', 'tipo_tela', 'bairros', 'duracao', 'prioridade', 'dias_semana', 'horarios', 'preco_base', 'dinamico', 'status'],
+    json: ['bairros', 'dias_semana', 'horarios'],
+    obrigatorias: ['nome'],
+    aoLer: anexarMetricasPacotes,
   },
   faturas: {
     tabela: 'faturas',
